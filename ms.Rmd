@@ -1,7 +1,7 @@
 ---
-title: 'To be determined: Associations between internet use and well-being in gallup world poll data'
-shorttitle: tbd
-leftheader: tbd
+title: 'How well do internet access and use predict well-being: A study of a boat load of people from everywhere in the world'
+shorttitle: Internet and well-being
+leftheader: Internet and well-being
 author: 
   - name: Matti Vuorre
     affiliation: 1
@@ -9,12 +9,12 @@ author:
     address: Oxford Internet Institute, University of Oxford
     email: matti.vuorre@oii.ox.ac.uk
     role:
-      - Concept
+      - Thought leader
   - name: Andrew K. Przybylski
     affiliation: 1
     email: andy.przybylski@oii.ox.ac.uk
     role:
-      - Concept
+      - Visionary
 
 affiliation:
   - id: 1
@@ -24,13 +24,15 @@ authornote: |
   \noindent \textbf{This manuscript is not yet peer-reviewed.}
   
 abstract: |
-  We analyse GWP data to look at relation between internet use and well-being.
+  With the increasing global penetration of internet technologies and proliferation of subsequent online platforms, debate on their effects on human well-being has remained topical. Research suggests that online platforms such as social media might affect users negatively. However, studied from another perspective, research also suggests that access and use of internet technologies is a precondition for well-being in today's interconnected world.
   
-keywords: words, key
-wordcount: "`r wordcountaddin:::word_count(filename = 'ms.Rmd')`"
+  In this study, we tested how different aspects of internet access and use predicted 8 well-being outcomes over 16 years among 2.45 million individuals living in 164 countries. Results. Implications. Conclusion.
+  
+keywords: well-being, internet technology, technology effects
+wordcount: '`r scales::number(wordcountaddin:::word_count("ms.Rmd"), big.mark = ",")`'
 bibliography: "references.bib"
 floatsintext: yes
-linenumbers: yes
+linenumbers: no
 draft: no
 mask: no
 figurelist: no
@@ -47,21 +49,31 @@ output:
     number_sections: false
 ---
 
-<!-- First a section of lots of EDA -->
-
 ```{r setup, include = FALSE}
 library(papaja)
 library(scales)
 library(knitr)
+library(patchwork)
+library(ggdist)
 library(corrr)
 library(tidyverse)
 opts_chunk$set(
-  include = FALSE
+  include = FALSE,
+  cache = TRUE
 )
 
 # Parallel computation options
 MAX_CORES <- as.numeric(Sys.getenv("MAX_CORES"))
 if (is.na(MAX_CORES)) MAX_CORES <- parallel::detectCores(logical = FALSE)
+theme_set(
+  theme_linedraw(base_size = 13) +
+    theme(
+      strip.background = element_rect(fill = "gray90", color = "gray90"),
+      strip.text = element_text(color = "black", hjust = 0),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(colour = "black", linetype = "dotted")
+    )
+)
 ```
 
 ```{r}
@@ -71,22 +83,14 @@ path <- "data-raw/gwp.rds"
 # List of indices
 ix <- list(
   life_satisfaction = c("WP16"),
-  negative_experiences = c("WP68", "WP69", "WP70", "WP71", "WP74"), # negative experiences
-  positive_experiences = c("WP60", "WP61", "WP63", "WP65", "WP67"), # positive experiences
-  loneliness = c("WP27", "WP10248"), # social life index, or inverse "loneliness"
-  law = c("WP112", "WP113", "WP117", "WP118"), # law and order index
-  foodshelter = c("WP40", "WP43"), # food and shelter index
-  # community basics index
-  communitybasics = c("WP91", "WP92", "WP94", "WP95", "WP98", "WP93", "WP97"), 
-  # financiallife = c("WP2319", "WP30", "WP31", "WP88"),
-  civicengagement = c("WP108", "WP109", "WP110"),
-  communityattachment = c("WP83", "WP85", "WP86"),
-  diversityindex = c("WP103", "WP105", "WP106"),
-  # Gallup-Sharecare Global Well-Being Index
+  negative_experiences = c("WP68", "WP69", "WP70", "WP71", "WP74"),
+  positive_experiences = c("WP60", "WP61", "WP63", "WP65", "WP67"),
+  social_life = c("WP27", "WP10248"), 
+  laworder = c("WP112", "WP113", "WP117", "WP118"), 
+  foodshelter = c("WP40", "WP43"), 
   gwpi_purpose = c("WP14442", "WP14443"),
   gwpi_social = c("WP14444", "WP14445"),
-  gwpi_financial = c("WP14446", "WP14447"),
-  gwpi_community = c("WP14450", "WP14451"),
+  # gwpi_financial = c("WP14446", "WP14447"),
   gwpi_physical = c("WP14448", "WP14449")
 )
 
@@ -95,41 +99,52 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
   library(labelled)
   # Load relevant variables
   dat <- read_spss(
-    "data-raw/gallup/The_Gallup_042722.sav", 
+    "data-raw/gallup/The_Gallup_042722.sav",
     col_select = c(
-      WP5, # country
+      WP5, 
       YEAR_CALENDAR,
-      WP1220, # age
-      WP1219, # sex
-      WP14, # urbanicity
-      INCOME_2, # Annual Household Income in International Dollars
-      WP16056, # internet access
-      WP39, # internet access at home
-      WP19544, # internet on your phone
-      WP15862, # internet used past 7 days
-      # outcomes, indices, etc
+      WP1220,
+      WP1219, 
+      WP23, 
+      WP1223, 
+      INCOME_2,
+      WP2319,
+      WP16056,
+      WP39,
+      WP19544,
+      WP15862,
       all_of(
         unlist(ix)
       )
     )
   )
   
-  # Rename and recode demographics and predictors
+  # Replace values with labels DK and Refused to proper NAs
+  val_labels(dat)  # These are the current value labels
+  to_na <- function(x) {
+    na_values(x) <- val_labels(x)[c("(DK)", "(Refused)")]
+    x
+  }
+  dat <- dat %>% 
+    mutate(across(c(everything(), -WP1219, -WP1220), to_na))
+  dat <- user_na_to_na(dat)
+  val_labels(dat)
+  str(dat)
+  
   dat <- dat %>% 
     mutate(
-      country = as_factor(WP5),
+      country = fct_drop(as_factor(WP5)),
       year = as.integer(YEAR_CALENDAR),
-      age = na_if(as.numeric(WP1220), 100),
+      age = as.integer(ceiling(WP1220)),
       sex = factor(as_factor(WP1219), levels = c("Female", "Male")),
-      urban = factor(
-        as_factor(WP14),
-        levels = c(
-          "A rural area or on a farm", "A small town or village", 
-          "A suburb of a large city", "A large city"  
-        ),
-        labels = c("Rural", "Town", "Suburb", "City")
-      ), 
+      healthprob = factor(as_factor(WP23), levels = c("No", "Yes")),
+      relationship = fct_collapse(
+        as_factor(dat$WP1223),
+        Single = c("Single/Never been married", "Separated", "Divorced", "Widowed"),
+        Relationship = c("Married", "Domestic partner")
+      ),
       income = as.numeric(INCOME_2),
+      income_feeling = 4 - as.integer(WP2319),
       internet_access = factor(as_factor(WP16056), levels = c("No", "Yes")),
       internet_past7days = factor(as_factor(WP15862), levels = c("No", "Yes")),
       internet_home = factor(as_factor(WP39), levels = c("No", "Yes")),
@@ -138,199 +153,356 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
       .before = 1
     )
   
-  # Recode items
-  # make (DK) and (Refused) NAs
-  # make values run from 0 (negative construct) to max (positive construct)
-
+  # Fix one of each 13yr and 101yr
+  dat$age <- if_else(dat$age < 15L, 15L, if_else(dat$age > 100L, 100L, dat$age))
+  summary(dat$age)
+  
   # primary index variables
   dat %>% 
     select(all_of(unlist(ix[1:4], use.names = FALSE))) %>% 
     generate_dictionary()
   dat <- dat %>% 
     mutate(
-      # Life satisfaction is already in correct order, 98 & 99 are DK and refused
-      WP16 = if_else(WP16 %in% 98:99, as.integer(NaN), as.integer(WP16)),
+      # Life satisfaction is already in correct order but rescale
+      life_satisfaction = if_else(
+        WP16 %in% 98:99, 
+        as.numeric(NaN), 
+        as.numeric(WP16) / 10
+      ),
       # Negative experiences, positive experiences, and "loneliness"
-      # 3:DK, 4:refused, 1:yes, 2:no
+      # 1 is yes, 2 is no; reverse
       across(
         all_of(as.character(unlist(ix[2:4]))), 
-        ~if_else(. %in% 3:4, as.integer(NaN), as.integer(2 - .))
+        ~as.integer(2 - .)
       )
-      
+    ) %>% 
+    mutate(
+      negative_experiences = rowMeans(
+        select(., WP68, WP69, WP70, WP71, WP74), na.rm = TRUE
+      ),
+      positive_experiences = rowMeans(
+        select(., WP60, WP61, WP63, WP65, WP67), na.rm = TRUE
+      ),
+      social_life = rowMeans(
+        select(., WP27, WP10248), na.rm = TRUE
+      )
     )
+  
   
   # Then the other scales
   dat %>% 
-    select(all_of(unlist(ix[-c(1:4)], use.names = FALSE))) %>% 
     generate_dictionary()
   dat <- dat %>% 
     mutate(
-      # Law and order, Food and shelter, Community basics, Civic engagement, Community attachment, Diversity index
-      # 1: positive (various) 2: negative (various), 3:DK, 4:refuse
-      across(
-        all_of(as.character(unlist(ix[5:10]))), 
-        ~if_else(. %in% 3:4, as.integer(NaN), as.integer(2 - .))
-      ),
+      # Law and order
+      WP112 = 2 - WP112,
+      WP113 = 2 - WP113,
+      WP117 = WP117 - 1,
+      WP118 = WP118 - 1,
+    ) %>% mutate(
+      laworder = rowMeans(select(., WP112, WP113, WP117, WP118), na.rm = TRUE),
+      # Food and shelter [note below], 
+      foodshelter = rowMeans(select(., WP40, WP43), na.rm = TRUE) - 1,
       # GWPI items
-      # 1: disagree 5:agree, 8:DK 9:refused
-      across(
-        all_of(as.character(unlist(ix[11:15]))), 
-        ~if_else(. %in% 8:9, as.integer(NaN), as.integer(. - 1))
-      ),
+      gwpi_purpose = rowMeans(select(., WP14442, WP14443), na.rm = TRUE) - 1,
+      gwpi_social = rowMeans(select(., WP14444, WP14445), na.rm = TRUE) - 1,
+      # WP14447 = 6 - WP14447,
+      # gwpi_finance = rowMeans(select(., WP14446, WP14447), na.rm = TRUE) - 1,
+      gwpi_physical = rowMeans(select(., WP14448, WP14449), na.rm = TRUE) - 1,
+      .keep = "unused"
     )
   
-  # Aggregate scales
-  for (i in 1:length(ix)) {
-    dat[[names(ix[i])]] <- rowMeans(
-      select(
-        dat, 
-        all_of(as.character(unlist(ix[i])))
-      ), 
-      na.rm = TRUE
-    ) 
-  }
-  
-  # Remove other scale items
+  # Remove now unnecessary variables
+  glimpse(dat)
   dat <- dat %>% 
-    select(-all_of(as.character(unlist(ix[5:15]))))
+    select(-c(WP16, WP40, WP43, WP112, WP113, WP117, WP118, WP1223, starts_with("WP1444")))
   
   # Save
   write_rds(dat, path)
 }
 dat <- read_rds(path)
+
+# A few dozen missing sex
+dat <- drop_na(dat, sex)
+
+# Income logp1
+dat <- mutate(dat, income = log(income+1))
 ```
 
 ```{r}
 #| label: chord-diagram
 #| eval: false
 # Correlation
-library(circlize)
-
-x <- dat %>% 
-  select(-c(1:6, all_of(as.character(unlist(ix[1:4]))))) %>% 
-  mutate(across(starts_with("internet"), as.numeric)) %>% 
-  # correlate()
-
-x2 <- x %>% 
-  stretch() %>% 
-  drop_na(r) %>% 
-  mutate(
-    across(x:y, ~str_replace(., "internet", "www"))
-  ) 
-
-x2 %>% 
-  chordDiagramFromDataFrame(
-    col = colorRamp2(
-      c(-1, 1), 
-      c("firebrick1", "dodgerblue1")
-      ),
-    transparency = 0.25
-  )
+# library(circlize)
+# 
+# x <- dat %>% 
+#   select(-c(1:6, all_of(as.character(unlist(ix[1:4]))))) %>% 
+#   mutate(across(starts_with("internet"), as.numeric)) %>% 
+#   correlate()
+#   
+#   x2 <- x %>% 
+#   stretch() %>% 
+#   drop_na(r) %>% 
+#   mutate(
+#     across(x:y, ~str_replace(., "internet", "www"))
+#   ) 
+# 
+# x2 %>% 
+#   chordDiagramFromDataFrame(
+#     col = colorRamp2(
+#       c(-1, 1), 
+#       c("firebrick1", "dodgerblue1")
+#     ),
+#     transparency = 0.25
+#   )
 ```
 
+# Introduction
 
-```{r}
-x <- dat %>% 
-  filter(year == 2021) %>% 
-  select(
-    -c(
-      1:5, internet_access, internet_home, starts_with("gwpi"),
-      all_of(as.character(unlist(ix[1:4])))
-    )
-  ) %>% 
-  mutate(across(where(is.factor), ~as.numeric(.)-1)) %>% 
-  correlate(method = "spearman")
+- What we do and why, and what is the problem
+- Previous related efforts
+- The theories™
+- What's left for us to study
 
-x %>% 
-  rename_with(~str_replace(., "internet", "net") %>% str_trunc(12, ellipsis = "")) %>% 
-  # rearrange() %>%
-  shave() %>% 
-  fashion() %>% 
-  as_tibble() %>% 
-  select(1:13) %>% 
-  kable(caption = "Correlations in 2021")
-```
+## Well-being
 
-```{r}
-#| label: eda-missingness
-#| eval: false
-# Explore missingness in data
-library(naniar)
-dat %>% 
-  group_by(year) %>% 
-  summarise(
-    `Total rows` = n(),
-    across(c(income, urban, starts_with("internet")), ~sum(!is.na(.)))
-  ) %>% 
-  mutate(
-    across(income:internet_phone, ~./`Total rows`),
-    `Total rows` = number(`Total rows`, big.mark = ",")
-  ) %>% 
-  kable(
-    digits = 2, 
-    caption = "Existing covariates over time in GWP data"
-  )
+In this study, we tried to capture a wide variety of responses under the umbrella term of well-being [@ryffStructurePsychologicalWellbeing1995].
 
-dat %>% 
-  group_by(year, country) %>% 
-  summarise(
-    across(
-      starts_with("internet"),
-      .fns = list(total = ~n(), missing = ~sum(is.na(.))), 
-      .names = "{.col}.{.fn}"
-    )
-  ) %>% 
-  ungroup() %>% 
-  pivot_longer(-c(year, country)) %>% 
-  separate(name, c("x", "y"), sep = "\\.") %>% 
-  pivot_wider(values_from = value, names_from = y) %>% 
-  filter(country %in% sample(unique(dat$country), 25)) %>%
-  ggplot(aes(year, missing/total, col = x)) +
-  geom_line() +
-  facet_wrap("country") +
-  theme(legend.position = "bottom")
+## Well-being in the internet age
 
-# Cross-missingness
-dat %>% 
-  filter(year == 2019) %>% 
-  select(income, urban, starts_with("internet")) %>% 
-  naniar::as_shadow() %>% 
-  rename_with(~str_remove(., "internet_") %>% str_remove("_NA")) %>% 
-  mutate(across(everything(), as.numeric)) %>% 
-  cor(method = "spearman") %>% 
-  kable(digits = 2)
-```
+Go into some depth on the literature linking the internet (how broad? is anyone talking about the internet vs specific things like tiktok?).
+
+## Current study
+
+Our overarching aim was to estimate the extent to which internet access and use predict well-being, while adjusting for other background variables that might confound the relationship. Our goal with these adjustments, discussed in more detail below, was to move toward identifying the independent contributions that internet access and use might have on well-being.
+
+- Research question 1, motivated by the past research, albeit contested, and healthcare / policy recommendations suggesting that internet device/platform use might lead to negative outcomes (especially for youth): 
+  - **RQ1 - Hypothesis 1.** Individuals who used internet in the past 7 days would report lower well-being than those who didn't;
+  - **RQ1 - H2.** this contrast would be pronounced for young individuals who have not yet developed healthy self-regulation.
+- Research question 2, motivated by the idea of a "digital divide": 
+  - **RQ2 - H1.** Individuals who have access to the internet report greater well-being than those who don't;
+  - **RQ2 - H2.** this difference is more pronounced in countries where overall internet adoption is greater.
+- Research question 3, motivated by the worries over digital devices: 
+  - **RQ3 - H1.** Individuals who have internet access on their phones report lower levels of well-being;
+  - **RQ3 - H2.** ???
+
+In addition, because previous literature has highlighted important sex differences in the associations between internet technology use and well-being, especially among young people, we examined whether the sex of the individual mattered to any of our target associations.
+
+We did not have specific hypotheses regarding the different outcomes, but rather investigated a holistic picture. To answer, we estimated really interesting and informative bayesian multilevel models that assumed plausible data-generating mechanisms and respected data missingness as a bona-fide phenomenon to be modelled alongside the existing data.
 
 # Methods
 
-Gallup world poll is a dataset that has data.
+```{r}
+# Summarise original values
+tmp <- dat %>% 
+  group_by(year) %>% 
+  summarise(
+    `Total rows` = n(),
+    across(c(starts_with("internet")), ~sum(!is.na(.)))
+  ) %>% 
+  mutate(
+    across(starts_with("internet"), ~ . / `Total rows`)
+  ) 
 
-## Internet engagement
+# Create combined internet access variable
+dat <- dat %>% 
+  mutate(
+    internet_access = if_else(year < 2016, internet_home, internet_access)
+  ) %>% 
+  select(-internet_home)
 
-- "Communications Access Index"
-  - [WP39]: Does your home have access to the internet? 
-  - [WP16056]: Do you have access to the internet in any way, whether on a mobile phone, a computer, or some other device?
-    1 Yes
-    2 No
-    3 (DK)
-    4 (Refused)
-- "Communications Use Index"
-  - [WP15862]: Have you used the internet in the past seven days, whether on a mobile phone, a computer, or some other device?
-    1 Yes
-    2 No
-    3 (DK)
-    4 (Refused)
-- In "Appendix A: 2021 Core Questions and Codes"
-  - [WP19544]: Can your mobile phone be used to access the Internet?
-    1 Yes
-    2 No
-    3 (DK)
-    4 (Refused)
+# Because internet variable coverage is so poor in 2005 we only use data from 2006
+dat <- filter(dat, year > 2005)
+```
 
+We analysed data from the Gallup World Poll [@gallupWorldPollMethodology2022]. Gallup World Poll (GWP) is a nationally representative (of each country's civilian, non-institutionalized, adult [15+] population) continuous annual survey of approximately 1,000 individuals from each of 164 countries from 2005 to 2022. Gallup conducts the surveys through one-hour interviews either face-to-face or via telephone, in the respondents native language, and the core questionnaire is translated to the major conversational language of each country. For the GWP methodological details, see @gallupWorldPollMethodology2022. We used data from `r number(nrow(dat), big.mark = ",")` individuals from 2006 to 2022.
+
+## Data availability
+
+We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All the code, and simulated datasets, is available at [Zenodo]. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database.
+
+## Internet access and use
+
+The key variables that we considered as predictors measured the respondents' access and use of the internet. From 2005 to 2022, GWP has surveyed these with four items that have varying coverage over the years. First, GWP measures internet access with *"Does your home have access to the internet?"* (2005 to 2015). Because the coverage of existing data for this variable was so low in 2005 (`r percent(tmp$internet_home[1], .1)`), we used this variable from 2006 to 2015, where the mean percentage of non-missing values was `r percent(mean(tmp$internet_home[2:11]), .1)`. From 2016 to 2022, a similar question measured overall internet access with *"Do you have access to the internet in any way, whether on a mobile phone, a computer, or some other device?"* (mean coverage `r percent(mean(tmp$internet_access[12:18]), .1)`). Because of the similarity of these two questions, and to extend the range of data coverage, we merged these two variables to one "internet access" variable.
+
+Second, GWP has asked about mobile internet access with *"Can your mobile phone be used to access the Internet?"* from 2017 to 2022 (mean coverage `r percent(mean(tmp$internet_phone[13:18]), .1)`). Third, GWP has measured internet *use* with *"Have you used the internet in the past seven days, whether on a mobile phone, a computer, or some other device?"* from 2015 to 2022. However, due to poor coverage in 2015 (`r percent(mean(tmp$internet_past7days[11]), .1)`), we used this variable from 2016 to 2022 (mean coverage `r percent(mean(tmp$internet_past7days[12:18]), .1)`).
+
+All of these items had binary "Yes"/"No" response options, and respondents were given the option to decline an answer or report that they didn't know. We coded the latter two as missing values.
+
+```{r}
+#| label: fig-internet
+#| include: true
+#| fig.height: 5.5
+#| fig.cap: Internet access and use data availability and summary over time.
+
+# Figure
+sanitize_labels <- function(x) {
+  # Make internet predictors look ok
+  x %>% 
+    str_replace("_", " ") %>% 
+    str_replace("7", " 7 ") %>% 
+    str_to_sentence()
+}
+
+p1 <- dat %>% 
+  select(
+    year, starts_with("internet"),
+    life_satisfaction, negative_experiences, 
+    positive_experiences, social_life
+  ) %>% 
+  mutate(across(c(where(is.factor)), ~as.numeric(.)-1)) %>% 
+  group_by(year) %>% 
+  summarise(
+    across(
+      everything(), 
+      list(valid = ~sum(!is.na(.)) / n(), mean = ~mean(., na.rm = TRUE)), 
+      .names = "{.col}.{.fn}"
+    )
+  ) %>% 
+  mutate(across(ends_with("valid"), ~if_else(. < 0.1, NaN, .))) %>% 
+  pivot_longer(-c(year)) %>% 
+  separate(name, c("variable", "measure"), sep = "\\.") %>% 
+  ggplot(aes(year, value, col = measure)) +
+  scale_color_brewer(
+    "Variable",
+    palette = "Set1",
+    labels = ~factor(., levels = c("mean", "valid"), labels = c("Mean response", "Valid responses"))
+  ) +
+  scale_y_continuous(
+    limits = 0:1,
+    expand = expansion(c(0.03, 0.06)),
+    labels = ~percent(., 1)
+  ) +
+  scale_x_continuous(
+    "Year",
+    breaks = extended_breaks(5)
+  ) +
+  geom_line(linewidth = 0.4) +
+  geom_point() +
+  facet_wrap(
+    "variable", 
+    scales = "free_x",
+    labeller = as_labeller(sanitize_labels),
+    nrow = 1
+  ) +
+  theme(
+    axis.title.y = element_blank(),
+    legend.position = "bottom", 
+    legend.title = element_blank()
+  )
+p2 <- (p1 %+% filter(p1$data, str_starts(variable, "internet"))) + 
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank()
+  )
+p3 <- (p1 %+% filter(p1$data, !str_starts(variable, "internet")))
+(p2 / p3) +
+  plot_annotation(tag_levels = "A") +
+  plot_layout(heights = c(5.5, 4.5))
+```
+
+## Well-being outcomes
+
+We focused on eight measures of well-being, broadly defined, in the Gallup World Poll: Life satisfaction, negative and positive experiences, social life satisfaction. In addition to these four outcomes, which were included in the GWP from 2005 to 2022, we studied four indicators from the Gallup-Sharecare Global Well-being Index™, which is a "barometer of individuals perceptions of their own well-being", and was measured between 2013 and 2015.
+
+Life satisfaction was measured with a single item: *"Please imagine a ladder, with steps numbered from 0 at the bottom to 10 at the top. The top of the ladder represents the best possible life for you and the bottom of the ladder represents the worst possible life for you. On which step of the ladder would you say you personally feel you stand at this time?"*, and respondents chose a number from 0 to 10. We rescaled this item to range from 0 to 1.
+
+Negative and positive experiences are both measured through a set of five Yes/No items. For negative experiences, respondents answered the prompts *"Did you experience the following feelings during a lot of the day yesterday?"*, *"How about physical pain / worry / sadness / stress / anger?"*. For positive experiences, the items were *"Did you feel well-rested yesterday?"*; *"Were you treated with respect all day yesterday?"*; *"Did you smile or laugh a lot yesterday?"*; *"Did you learn or do something interesting yesterday?*"; and *"Did you experience the following feelings during a lot of the day yesterday? How about enjoyment?"*.
+
+In 2013 through 2015, the GWP database also included the (Gallup-Sharecare) Global Well-being Index™, which measured (among others) experiences of purpose (*"liking what one does each day and being motivated to achieve one’s goals"*); social well-being (*"having supportive relationships and love in your life"*); and physical well-being, from which we included the item *"In the last seven days, you have felt active and productive every day"*. The sense of purpose was measured with prompts *"You like what you do every day"* and *"You learn or do something interesting every day"*. Social well-being was measured with *"Someone in your life always encourages you to be healthy"* and *"Your friends and family give you positive energy every day"*. All items included the prompt *"Thinking about your life in general, please rate your level of agreement with each of the following using a five-point scale, where 5 means you STRONGLY AGREE and 1 means you STRONGLY DISAGREE. You may choose any of the numbers 1, 2, 3, 4, or 5."*
+
+While these scales are not psychometrically validated, Gallup cites prominent scientists as having helped with their development. While we find that statement of dubious value, we believe that the unique scope of the dataset, both across time and countries, makes it a valuable object of study.
+
+## Covariates
+
+Our intent in this study was to approach the independent contributions of internet access and use on well-being. To that end, we adjusted for plausible covariates that were available in the GWP. First, previous research has highlighted important differences between males and females in both their levels of well-being and use of internet technologies (e.g. Figure \@ref(fig:fig-internet-by-sex)). In addition for adjusting for sex, we included it as a moderator in all our analyses.
+
+```{r}
+#| label: fig-internet-by-sex
+#| include: true
+#| fig.height: 2.8
+#| fig.cap: Overall proportions of each country's internet users by sex. Points are individual countries. The regression line indicates that males overall were more likely to have internet access and used internet more frequently, but this divide was smaller for countries where overall adoption was greater.
+dat %>% 
+  group_by(country, year, sex) %>% 
+  summarise(across(starts_with("internet"), ~mean(as.numeric(.)-1, na.rm = TRUE))) %>% 
+  group_by(country, sex) %>% 
+  summarise(across(starts_with("internet"), ~mean(., na.rm = TRUE))) %>% 
+  ungroup() %>% 
+  mutate(m = rowMeans(select(., starts_with("internet")), na.rm = TRUE)) %>% 
+  arrange(m) %>% 
+  mutate(country = fct_inorder(country)) %>% 
+  select(-m) %>% 
+  pivot_longer(starts_with("internet")) %>%
+  pivot_wider(names_from = sex, values_from = value) %>% 
+  ggplot(aes(Male, Female)) +
+  scale_x_continuous(
+    "Males",
+    labels = ~percent(., 1)
+  ) +
+  scale_y_continuous(
+    "Females",
+    labels = ~percent(., 1)
+  ) +
+  geom_abline(linetype = "dotted") +
+  geom_point(shape = 1, col = "dodgerblue1") +
+  geom_smooth(method = "lm", se = FALSE, col = "dodgerblue4") +
+  facet_wrap(
+    "name",
+    nrow = 1,
+    labeller = as_labeller(sanitize_labels),
+  ) +
+  theme(
+    aspect.ratio = 1
+  )
+```
+
+Second, there is a vast literature on the associations between *adolescent* internet technology use and well-being [ref] (while at the same time few seem to be interested in older individuals [@burnsThoughtExperimentWhat2022]). Much of the policy discussion has also revolved around protecting young people from online harms [ref!]. We therefore included age as a covariate in our models.
+
+In addition:
+
+- Health problems (yes/no)
+- Relationship status (relationship/single)
+- income (within-country centered)
 
 ## Data analysis
 
 We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses.
+
+```{r}
+dat
+```
+
+# Results
+
+```{r}
+#| include: true
+x <- dat %>% 
+  # filter(year > 2013) %>% 
+  select(
+    starts_with("internet"),
+    income, healthprob, relationship, 
+    laworder, foodshelter,
+    life_satisfaction, negative_experiences, positive_experiences, social_life,
+    starts_with("gwpi_")
+  ) %>% 
+  mutate(across(where(is.factor), ~as.numeric(.)-1)) %>% 
+  correlate()
+y <- x %>% 
+  # shave() %>% 
+  fashion(na_print = "-") %>% 
+  as_tibble() %>% 
+  mutate(term = str_glue("{term} ({1:nrow(x)})")) %>% 
+  mutate(term = sanitize_labels(term))
+  names(y) <- c(" ", 1:(ncol(y)-1))
+  y %>%   
+    apa_table(
+      font_size = "scriptsize",
+      placement = "h",
+      caption = "Pearson correlations between key variables.",
+      note = "We used all pairwise-complete observations."
+    )
+```
+
 
 \clearpage
 
@@ -340,20 +512,92 @@ We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses.
 :::
 
 
-<!-- Create an appendix with new page, table, and figure numbers. -->
+\clearpage
+\onecolumn
 
-<!-- \clearpage -->
-<!-- \onecolumn -->
-
-<!-- # Supplementary online material to Title (Authors) -->
+# Supplementary online analyses to *Internet and well-being* (Vuorre & Przybylski, 2022)
 
 <!-- Prepend table & figure numbers with S and reset counters -->
-<!-- \setcounter{page}{1} -->
-<!-- \setcounter{table}{0} -->
-<!-- \setcounter{figure}{0} -->
-<!-- \renewcommand{\thetable}{S\arabic{table}} -->
-<!-- \renewcommand{\thefigure}{S\arabic{figure}} -->
 
-<!-- ```{r include-only-for-pdf} -->
-<!-- #| include: !expr knitr::is_latex_output() -->
-<!-- ``` -->
+\setcounter{page}{1}
+\setcounter{table}{0}
+\setcounter{figure}{0}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+
+## Variable descriptions
+
+## Data availability
+
+Some variables are only collected during certain years
+
+```{r}
+#| label: eda-missingness
+#| include: true
+# Explore missingness in data
+library(naniar)
+dat %>% 
+  group_by(year) %>% 
+  summarise(
+    `Total rows` = n(),
+    across(c(income, starts_with("internet")), ~sum(!is.na(.)))
+  ) %>% 
+  mutate(
+    across(income:internet_phone, ~percent(./`Total rows`, .01)),
+    `Total rows` = number(`Total rows`, big.mark = ",")
+  ) %>% 
+  apa_table(
+    font_size = "scriptsize",
+    digits = 2,
+    caption = "Existing covariates over time.",
+    note = "Numbers indicate percentages of non-missing values."
+  )
+```
+
+
+## Correlation matrices
+
+Below, we show correlation matrices between the key variables separately for each year in the data. In addition to the correlation values, these matrices describe the (co-)occurrence of variables. Where cells in the matrices are empty, the correlation could not be estimated. This is typically due to those variables not existing in the same year. Sometimes there is no correlation between the internet variables because one is conditional on the other (e.g. internet home }} internet access)
+
+```{r include-only-for-pdf, results = 'asis'}
+#| label: eda-corr-matrix
+#| include: !expr knitr::is_latex_output()
+
+yearly_correlation_matrix <- function(year) {
+  
+  dir.create("tmp/")
+  path <- str_glue("tmp/cormat-{year}.rds")
+  if (!file.exists(path)) {
+    x <- dat %>% 
+      filter(year == {{year}})
+    x <- x %>% 
+      select(
+        starts_with("internet"),
+        income, healthprob, relationship, 
+        laworder, foodshelter,
+        life_satisfaction, negative_experiences, positive_experiences, social_life,
+        starts_with("gwpi_")
+      ) %>% 
+      mutate(across(where(is.factor), ~as.numeric(.)-1)) %>% 
+      correlate()
+    saveRDS(x, path)
+  } else {x <- readRDS(path)}
+  
+  y <- x %>% 
+    # shave() %>% 
+    fashion(na_print = "-") %>% 
+    as_tibble() %>% 
+    mutate(term = str_glue("{term} ({1:nrow(x)})"))
+  names(y) <- c(" ", 1:(ncol(y)-1))
+  y %>%   
+    apa_table(
+      font_size = "scriptsize",
+      placement = "h",
+      caption = str_glue("Year: {year}. Pearson correlations between key variables."),
+      note = str_glue("We used all pairwise-complete observations.")
+    )
+}
+x <- unique(dat$year) %>% 
+  map(~yearly_correlation_matrix(.x))
+unlist(x) %>% cat
+```
