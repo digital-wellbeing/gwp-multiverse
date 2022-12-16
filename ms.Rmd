@@ -450,7 +450,9 @@ specs_reyear <- expand_grid(
   weights = c("No", "Yes")
 ) %>% 
   mutate(
-    formula = str_glue("{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)")
+    formula = str_glue(
+      "{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)"
+    )
   )
 ```
 
@@ -520,27 +522,18 @@ if (!file.exists(path)) {
   
 } else {specs <- readRDS(path)}
 
-fits <- rename(fits, weights = model) %>% 
-  filter(n > 0)
-fits_gwb <- fits %>% filter(str_detect(y, "gwb_"))
-fits <- fits %>% filter(!str_detect(y, "gwb_"))
+specs_gwb <- specs %>% filter(str_detect(y, "gwb_"))
+specs <- specs %>% filter(!str_detect(y, "gwb_"))
 
-# Counts for text
-n_specs_all <- fits %>% 
-  filter(effect == x)
-n_specs_main <- n_specs_all %>% 
-  filter(!str_detect(y, "gwb_")) %>% 
-  nrow() %>% 
-  number2()
-n_specs_gwb <- n_specs_all %>% 
-  filter(str_detect(y, "gwb_")) %>% 
-  nrow() %>% 
-  number2()
-n_specs_all <- n_specs_all %>% 
-  nrow() %>% 
-  number2()
+n_specs_main <- specs %>% 
+  filter(term == x) %>% 
+  nrow()
+n_specs_gwb <- specs_gwb %>% 
+  filter(term == x) %>% 
+  nrow()
+n_specs_all <- n_specs_main + n_specs_gwb
 
-mv <- fits %>% 
+mv <- specs %>% 
   filter(term == x) %>% 
   arrange(estimate, y) %>% 
   group_by(y) %>% 
@@ -635,7 +628,7 @@ rm(mvs_all)
 
 ---
 abstract: |
-  With the increasing global penetration of the internet, and technologies and platforms enabled by it, their potential effects on individuals' well-being remains hotly debated. On one hand, these technologies have enabled novel forms of commerce, education, and leisure; on the other, many are worried that their use might negatively affect individuals by, for example, displacing time spent on other healthy activities. Moreover, research findings on the effects of internet technologies on well-being have been mixed and, to date, inconclusive and of limited geographic and demographic scope. In the current work, we examined the extent to which having internet access, mobile internet access, or being an active internet user affected seven well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals living in `r length(unique(dat$country))` countries. We first tested the extent to which well-being varied as a function of internet connectivity. Then, to go beyond describing average associations, we examined the potential causal effects of internet connectivity on well-being with a multiverse analysis over `r n_specs_all` plausible model and subgroup specifications. `r percent(mvs$Positive[5], .01)` of these specifications indicated that internet connectivity was associated with positive well-being, while only `r percent(mvs$Negative[5], .01)` indicated negative associations. These results indicate that internet access and active use are positive contributors to individuals' well-being.
+  With the increasing global penetration of the internet, and technologies and platforms enabled by it, their potential effects on individuals' well-being remains hotly debated. On one hand, these technologies have enabled novel forms of commerce, education, and leisure; on the other, many are worried that their use might negatively affect individuals by, for example, displacing time spent on other healthy activities. Moreover, research findings on the effects of internet technologies on well-being have been mixed and, to date, inconclusive and of limited geographic and demographic scope. In the current work, we examined the extent to which having internet access, mobile internet access, or being an active internet user affected seven well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals living in `r length(unique(dat$country))` countries. We first tested the extent to which well-being varied as a function of internet connectivity. Then, to go beyond describing average associations, we examined the potential causal effects of internet connectivity on well-being with a multiverse analysis over XXXX plausible model and subgroup specifications. `r percent(mvs$Positive[5], .01)` of these specifications indicated that internet connectivity was associated with positive well-being, while only `r percent(mvs$Negative[5], .01)` indicated negative associations. These results indicate that internet access and active use are positive contributors to individuals' well-being.
 ---
 
 The increasing adoption and use of internet-enabled technologies and platforms has spurred debate about their potential effects on people's psychological well-being and functioning. However, even after considerable scientific attention, an understanding of the associations between internet technology use and well-being remains elusive, and results of scientific studies on this topic have been mixed. 
@@ -688,7 +681,6 @@ In addition to these covariates, we identified meaningful subgroups in the data.
 
 Our general data-analytic approach was a regression model predicting one outcome (e.g. life satisfaction) from an intercept and one predictor (e.g. internet access). Where the outcome consisted of multiple items, we took the mean. In addition, we within-country centered all our predictors, so as to not include between-country differences in the coefficients, which consequently indicated contrasts between individuals who (e.g.) had access to the internet to those who didn't, within a given country. In addition, because the data were nested within countries, we specified a multilevel model where the intercept and coefficient of the internet predictor varied randomly over countries. We addressed our first research question about average contrasts with a multilevel model of well-being outcome $y$ for observation $i$ and country $j$ on internet predictor $x$, specified as
 
-$$
 \begin{align*} 
 y_{ij} &\sim \text{Normal}(\mu_{ij}, \sigma^{2}), \\
 \mu_{ij} &= \alpha_{0} + \beta_{0j} +
@@ -705,16 +697,15 @@ y_{ij} &\sim \text{Normal}(\mu_{ij}, \sigma^{2}), \\
   \end{bmatrix} 
 \right).
 \end{align*}
-$$
 
-In this manner, $\alpha_1$ is the difference in well-being indicator $y$ between individuals who had access to the internet and those who didn't, for the average country. For our second, primary, research question we then conducted a multiverse analysis over different covariate permutations on this base model and subgroups in the data. We analysed all the possible ways in which the covariates could be included in this model as fixed effects (including no covariates), leading to XXX different covariate specifications. In addition to model specifications and subgroups, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights. Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, years, covariate combinations, and whether model weights were included or not, leading to `r number2(n_specs_all)` specifications. (This number was smaller than the theoretical number of specifications, because not all combinations were possible (e.g. mobile internet access did not exist before 2017)). 
+In this manner, $\alpha_1$ is the difference in well-being indicator $y$ between individuals who had access to the internet and those who didn't, for the average country. For our second, primary, research question we then conducted a multiverse analysis over different covariate permutations on this base model and subgroups in the data. We analysed all the possible ways in which the covariates could be included in this model as fixed effects (including no covariates), leading to XXX different covariate specifications. In addition to model specifications and subgroups, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights. Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, years, covariate combinations, and whether model weights were included or not, leading to `r n_specs_all` specifications. (This number was smaller than the theoretical number of specifications, because not all combinations were possible (e.g. mobile internet access did not exist before 2017)). 
 
-Because an additional concern with this analytic strategy was a diminishing sample size per analysis (reported below), we conducted a second multiverse analysis as a robustness check. That analysis was otherwise similar to our main multiverse analysis, but instead of subgrouping data by year we used year and its interaction with countries as random effect clusters in the multilevel model. In addition to examining the robustness of our results, this additional analysis was motivated by our prior study, where differences in technology-use and well-being associations over time were very small [@vuorreThereNoEvidence2021]. We report this robustness analysis in Appendix B. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses and the lme4 package for estimating the multilevel models [batesFittingLinearMixedEffects2015].
+Because an additional concern with this analytic strategy was a diminishing sample size per analysis (reported below), we conducted a second multiverse analysis as a robustness check. That analysis was otherwise similar to our main multiverse analysis, but instead of subgrouping data by year we used year and its interaction with countries as random effect clusters in the multilevel model. In addition to examining the robustness of our results, this additional analysis was motivated by our prior study, where differences in technology-use and well-being associations over time were very small [@vuorreThereNoEvidence2021]. We report this robustness analysis in Appendix B. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses and the lme4 package for estimating the multilevel models [@batesFittingLinearMixedEffects2015].
 
 # Results
 
 ```{r}
-path <- "tmp/fits-lmer-total.rds"
+path <- "tmp/specs-lmer-total.rds"
 if (!file.exists(path)) {
   
   library(furrr)
@@ -726,7 +717,7 @@ if (!file.exists(path)) {
     packages = c("lme4", "purrr", "dplyr", "broom.mixed")
   )
   
-  fits_avg <- expand_grid(
+  specs_avg <- expand_grid(
     y = c(
       "life_satisfaction",
       "negative_experiences",
@@ -760,15 +751,15 @@ if (!file.exists(path)) {
     ungroup() %>% 
     unnest(out)
 
-  fits_avg <- fits_avg %>% 
+  specs_avg <- specs_avg %>% 
     filter(term == x) %>% 
     select(-c(effect, group, term, model, formula))
   
-  saveRDS(fits_avg, path)
-} else {fits_avg <- readRDS(path)}
+  saveRDS(specs_avg, path)
+} else {specs_avg <- readRDS(path)}
 
 # Median association (with reversed negative experiences)
-tmp <- fits_avg %>% 
+tmp <- specs_avg %>% 
   mutate(estimate = if_else(y == "negative_experiences", -1*estimate, estimate)) %>% 
   summarise(across(c(estimate, std.error), median))
 ```
@@ -862,7 +853,7 @@ tmp1 %>%
     show.legend = FALSE
   ) +
   geom_label(
-    data = fits_avg %>% 
+    data = specs_avg %>% 
       filter(!str_detect(y, "gwb_")) %>% 
       mutate(
         across(c(where(is.numeric), -n), ~number(., .001)),
@@ -942,7 +933,7 @@ tmp2 %>%
 ```{r}
 #| label: tbl-multiverse
 #| include: true
-out_sum_2 <- out_sum_2 %>% 
+mvs2 <- mvs %>% 
   mutate(
     N = number2(N, 1),
     across(c(Negative, `Not significant`, Positive), ~percent(., .01)),
@@ -954,7 +945,7 @@ out_sum_2 <- out_sum_2 %>%
     .keep = "unused",
     .after = 2
   )
-out_sum_2 %>%   
+mvs2 %>%   
   apa_table(
     caption = "Summary of multiverse analysis of associations between internet access (or use) and well-being.", 
     note = 'N is the median sample size across specifications. "Total" indicates quantities across well-being outcomes (we reversed associations with negative experiences for this aggregate number).', 
@@ -977,11 +968,10 @@ Figure \@ref(fig:fig-multiverse) shows that across all model specifications, the
 #| label: fig-multiverse
 #| out.width: "\\textwidth"
 #| fig.env: "figure*"
-#| fig.height: 7.6
+#| fig.height: 7.8
 #| fig.width: 9
 #| fig.cap: Multiverse analysis results of associations between three internet use predictors and four well-being outcomes. A. Estimated associations, in order of increasing magnitude, shown separately for each of the four main well-being outcomes. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. B. A dashboard of model specifications. Each point in the small panels indicates the value of the grouping variable or covariate specification for the model indicated on the x-axis.
-
-p1 <- out %>% 
+p1 <- mv %>% 
   ggplot(aes(i, estimate, col = decision)) +
   scale_color_manual(values = c("firebrick2", "grey70", "dodgerblue2")) +
   scale_y_continuous(position = "right",
@@ -1004,16 +994,18 @@ p1 <- out %>%
     col = "grey20", fill = "grey60", alpha = .4, n = 3001
   ) +
   geom_ysidepoint(
-    data = out_sum %>% 
+    data = mv %>% 
+      group_by(y) %>% 
+      summarise(median = median(estimate)) %>% 
       # Just for coloring the dot
       mutate(
         decision = cut(
-          `0.5`, 
-          breaks = c(-1, -.0001, .0001, 1), 
-          labels = levels(out$decision)
+          median,
+          breaks = c(-1, -.0001, .0001, 1),
+          labels = c("Negative", "Not significant", "Positive")
         )
       ),
-    aes(y = `0.5`, x = 0),
+    aes(y = median, x = 0),
     size = 2, position = position_nudge(x = .025)
   ) +
   scale_ysidex_continuous(expand = expansion(c(0, .2))) +
@@ -1033,7 +1025,7 @@ p1 <- out %>%
     ggside.axis.ticks = element_blank()
   )
 
-p2 <- out %>% 
+p2 <- mv %>% 
   mutate(
     weights = factor(
       weights, 
@@ -1050,9 +1042,9 @@ p2 <- out %>%
       levels = c("x", "age", "sex", "covariate", "year", "weights"),
       labels = c("X", "Age", " ", "Covariates", "Year", "  ")
     ),
-    value = fct_relevel(value, unique(specs$covariate)),
+    value = fct_relevel(value, cs),
     value = fct_recode(value, `No covariates` = "1")
-  ) %>% 
+  ) %>%
   ggplot(aes(i, value, col = decision)) +
   scale_color_manual(values = c("firebrick2", "grey70", "dodgerblue2")) +
   scale_y_discrete(
@@ -1064,7 +1056,11 @@ p2 <- out %>%
     breaks = extended_breaks(5),
     expand = expansion(.01)
   ) +
-  geom_point(shape = 20, size = .2) +
+  geom_point(
+    shape = 20, 
+    size = .1, 
+    position = position_quasirandom(groupOnX = FALSE, width = .2)
+  ) +
   facet_grid(
     cols = vars(y),
     rows = vars(name), 
@@ -1082,7 +1078,7 @@ p2 <- out %>%
   )
 
 ((p1 / p2) +
-  plot_layout(heights = c(3.6, 6.4))) +
+  plot_layout(heights = c(3.2, 6.8))) +
   plot_annotation(tag_levels = "A")
 ```
 
@@ -1092,7 +1088,7 @@ p2 <- out %>%
 #| out.width: "\\textwidth"
 #| fig.env: "figure*"
 #| fig.cap: Median associations between the internet predictors and well-being outcomes by sex and age, ordered by covariate specification. The specifications are ordered as in Figure 2; where greater numbers indicate more covariates in the model.
-p1 <- fits %>% 
+p1 <- specs %>% 
   filter(term == x) %>% 
   reframe(
     q = c(.1, .5, .9),
@@ -1125,7 +1121,7 @@ p1
 ```
 
 ```{r}
-fits %>% 
+specs %>% 
   filter(term == x) %>% 
   reframe(
     q = c(.1, .5, .9),
@@ -1160,7 +1156,7 @@ A visual examination of Figure \@ref(fig:fig-multiverse) did not suggest any str
 #| eval: false
 library(ggstance)
 library(ggh4x)
-fits %>% 
+specs %>% 
   drop_na(age, sex) %>% 
   filter(
     covariate %in% c("1", "healthproblems + income"),
@@ -1216,7 +1212,7 @@ We then focused on another aspect of potential variation among the associations 
 
 The debate over internet platforms' and technologies' effects on individuals' psychological well-being remains a central topic because of their potentially global consequences. While past results on this topic have been mixed, the overwhelming majority of studies have examined convenience samples from the global north, thereby ignoring the fact that the penetration of the internet has been a global phenomenon. In this study, we examined associations between internet use and access, and a broad variety of well-being indicators in a representative sample of `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries within an age range that spanned from late adolescence to older adults. We found that on average across countries and demographics, individuals who had internet access, mobile internet access, or actively used the internet reported greater levels of life satisfaction, positive experiences, and social well-being, and lower levels of negative experiences.
 
-The main thrust of our analysis was to examine to what extent this positive association between internet and well-being was sensitive to different demographic groups, time periods, and modelling decisions. Furthermore, we attempted to estimate the unique contributions of internet on well-being by examining this association across `r length(unique(specs$covariate))` different permutations of sets of plausible covariates that might otherwise create or mask associations. Across `r number2(nrow(filter(fits, term == x)))` of such model specifications, `r out_sum_2$Positive[5]` of the associations were significantly positive, and only `r out_sum_2$Negative[5]` were negative. We thus conclude that the proliferation of (mobile) internet access and increasing engagement with the internet has been a net benefit to the well-being of individuals around the world.
+The main thrust of our analysis was to examine to what extent this positive association between internet and well-being was sensitive to different demographic groups, time periods, and modelling decisions. Furthermore, we attempted to estimate the unique contributions of internet on well-being by examining this association across `r length(unique(specs$covariate))` different permutations of sets of plausible covariates that might otherwise create or mask associations. Across `r number2(nrow(filter(specs, term == x)))` of such model specifications, `r mvs$Positive[5]` of the associations were significantly positive, and only `r mvs$Negative[5]` were negative. We thus conclude that the proliferation of (mobile) internet access and increasing engagement with the internet has been a net benefit to the well-being of individuals around the world.
 
 Nevertheless, our conclusion is qualified by a number of factors. First, we compared individuals to each other. There are likely myriad other features about the human condition that are associated with both uptake of internet technologies and well-being in such a manner that they might cause positive associations to be observed. While we attempted to adjust for such features by including various covariates in our models, the data and theory to guide model selection were both limited. 
 
