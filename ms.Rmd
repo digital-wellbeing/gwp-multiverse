@@ -108,7 +108,7 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
     laworder = c("WP112", "WP113", "WP117", "WP118"), 
     foodshelter = c("WP40", "WP43"), 
     gwb_purpose = c("WP14442", "WP14443"),
-    gwb_social = c("WP14444", "WP14445"),
+    gwb_community = c("WP14450", "WP14451"),
     gwb_physical = c("WP14448", "WP14449")
   )
   
@@ -254,8 +254,8 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
       gwb_purpose = (
         rowMeans(select(., WP14442, WP14443), na.rm = TRUE) - 1
       ) / 4,
-      gwb_social = (
-        rowMeans(select(., WP14444, WP14445), na.rm = TRUE) - 1
+      gwb_community = (
+        rowMeans(select(., WP14450, WP14451), na.rm = TRUE) - 1
       ) / 4,
       gwb_physical = (
         rowMeans(select(., WP14448, WP14449), na.rm = TRUE) - 1
@@ -270,7 +270,7 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
       -c(
         WP16, WP40, WP43, 
         WP112, WP113, WP117, 
-        WP118, WP1223, starts_with("WP1444")
+        WP118, WP1223, starts_with("WP144")
       )
     )
   
@@ -312,14 +312,17 @@ yr <- paste(range(dat$year), collapse = " to ")
 
 ```{r}
 #| label: multiverse-specifications
-dat2 <- dat %>% 
+
+# We will be running two multiverse analyses. The first (main one) uses year as a subgroup. The second (robustness check) uses year in the data but uses random effects over years and the country-year interaction.
+
+dat_mv <- dat %>% 
   select(
     country, year, 
     age, sex, 
     weight,
     education, work,
     healthproblems, relationship,
-    income,
+    foodshelter, income,
     starts_with("internet"),
     starts_with("gwb"),
     life_satisfaction, negative_experiences, 
@@ -333,7 +336,24 @@ dat2 <- dat %>%
       labels = c("15 to 24", "25 to 34", "35 to 44", "45 to 54", "55 to 64", "65 +"),
       include.lowest = TRUE, right = FALSE
     )
+  ) 
+
+dat_mv_reyear <- dat_mv %>% 
+  group_by(country) %>% 
+  mutate(
+    # Center all covariates and predictors
+    across(
+      c(education, income),
+      ~. - mean(., na.rm = TRUE)
+    ),
+    across(
+      c(healthproblems, foodshelter, relationship, work, starts_with("internet")), 
+      ~((as.numeric(.)-1) - mean((as.numeric(.)-1), na.rm = TRUE))
+    )
   ) %>% 
+  ungroup()
+
+dat_mv <- dat_mv %>% 
   group_by(country, year) %>% 
   mutate(
     # Center all covariates and predictors
@@ -342,7 +362,7 @@ dat2 <- dat %>%
       ~. - mean(., na.rm = TRUE)
     ),
     across(
-      c(healthproblems, relationship, work, starts_with("internet")), 
+      c(healthproblems, foodshelter, relationship, work, starts_with("internet")), 
       ~((as.numeric(.)-1) - mean((as.numeric(.)-1), na.rm = TRUE))
     )
   ) %>% 
@@ -380,29 +400,34 @@ Yes <- function(formula, data) {
 No <- possibly(No, tibble(n = 0))
 Yes <- possibly(Yes, tibble(n = 0))
 
-specs <- expand_grid(
-  year = unique(dat2$year),
-  distinct(dat2, sex, age),
-  y = c(
+ys <- c(
     "life_satisfaction",
     "negative_experiences",
     "positive_experiences",
     "social_life",
-    "gwb_purpose", "gwb_social", "gwb_physical"
-  ),
-  x = c(
+    "gwb_purpose", "gwb_community", "gwb_physical"
+  )
+xs <- c(
     "internet_access",
     "internet_past7days",
     "internet_phone"
-  ),
-  covariate = c(
+  )
+cs <- c(
     "healthproblems",
     "relationship",
     "education",
     "work",
-    "income"
-  ) %>% expand_covariate(),
-  model = c("No", "Yes")
+    "income",
+    "foodshelter"
+  ) %>% expand_covariate()
+
+specs <- expand_grid(
+  year = unique(dat_mv$year),
+  distinct(dat_mv, sex, age),
+  y = ys,
+  x = xs,
+  covariate = cs,
+  weights = c("No", "Yes")
 ) %>% 
   mutate(
     formula = str_glue("{y} ~ {x} + {covariate} + ({x} | country)")
@@ -415,12 +440,24 @@ specs <- specs %>%
     !(x == "internet_past7days" & year < 2015), # 2015 onwards
     !(str_starts(y, "gwb_") & !between(year, 2013, 2015)) # only these years
   )
+
+specs_reyear <- expand_grid(
+  distinct(dat_mv_reyear, sex, age),
+  y = ys,
+  x = xs,
+  covariate = cs,
+  weights = c("No", "Yes")
+) %>% 
+  mutate(
+    formula = str_glue("{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)")
+  )
 ```
 
 ```{r}
 #| label: multiverse-run
 dir.create("tmp", FALSE)
 path <- "tmp/multiverse-lmer.rds"
+path_reyear <- "tmp/multiverse-lmer-reyear.rds"
 if (!file.exists(path)) {
   
   library(furrr)
@@ -428,20 +465,23 @@ if (!file.exists(path)) {
   
   # Pass these global objects to `future_pmap()`
   opts <- furrr_options(
-    globals = list(dat2 = dat2, No = No, Yes = Yes),
+    globals = list(
+      dat_mv = dat_mv, dat_mv_reyear = dat_mv_reyear, 
+      No = No, Yes = Yes
+    ),
     packages = c("lme4", "purrr", "dplyr", "broom.mixed")
   )
   
-  fits <- specs %>% 
+  specs <- specs %>% 
     mutate(
       out = future_pmap(
-        list(model, formula, year, sex, age),
+        list(weights, formula, year, sex, age),
         ~do.call(
           what = ..1, 
           args = list(
             formula = ..2, 
             data = filter(
-              dat2, 
+              dat_mv, 
               year == ..3, 
               sex == ..4, 
               age == ..5
@@ -451,11 +491,33 @@ if (!file.exists(path)) {
         .options = opts
       )
     ) %>% 
-    ungroup() %>% 
-    unnest(out)
+    unnest(out) %>% 
+    filter(n > 0)
+  saveRDS(specs, path)
   
-  saveRDS(fits, path)
-} else {fits <- readRDS(path)}
+  specs_reyear <- specs_reyear %>% 
+    mutate(
+      out = future_pmap(
+        list(weights, formula, sex, age),
+        ~do.call(
+          what = ..1, 
+          args = list(
+            formula = ..2, 
+            data = filter(
+              dat_mv_reyear, 
+              sex == ..3, 
+              age == ..4
+            )
+          )
+        ),
+        .options = opts
+      )
+    ) %>% 
+    unnest(out) %>% 
+    filter(n > 0)
+  saveRDS(specs_reyear, path_reyear)
+  
+} else {specs <- readRDS(path)}
 
 fits <- rename(fits, weights = model) %>% 
   filter(n > 0)
@@ -463,13 +525,17 @@ fits_gwb <- fits %>% filter(str_detect(y, "gwb_"))
 fits <- fits %>% filter(!str_detect(y, "gwb_"))
 
 # Counts for text
-n_specs_all <- nrow(specs) %>% number2()
-n_specs_main <- specs %>% 
+n_specs_all <- fits %>% 
+  filter(effect == x)
+n_specs_main <- n_specs_all %>% 
   filter(!str_detect(y, "gwb_")) %>% 
   nrow() %>% 
   number2()
-n_specs_gwb <- specs %>% 
+n_specs_gwb <- n_specs_all %>% 
   filter(str_detect(y, "gwb_")) %>% 
+  nrow() %>% 
+  number2()
+n_specs_all <- n_specs_all %>% 
   nrow() %>% 
   number2()
 
@@ -568,14 +634,14 @@ rm(mvs_all)
 
 ---
 abstract: |
-  With the increasing global penetration of the internet, and technologies and platforms enabled by it, their potential effects on individuals' well-being remains hotly debated. On one hand, these technologies have enabled novel forms of commerce, education, and leisure; on the other, many are worried that their use might negatively affect individuals by, for example, displacing time spent on other healthy activities. Moreover, research findings on the effects of internet technologies on well-being have been mixed and, to date, inconclusive and of limited geographic and demographic scope. In the current work, we examined the extent to which having internet access, a smartphone, or being an active internet user affected seven well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals living in `r length(unique(dat$country))` countries. We first tested the extent to which well-being varied as a function of internet connectivity. Then, to go beyond describing average associations, we examined the potential causal effects of internet connectivity on well-being using a multiverse analysis over `r n_specs_all` plausible model and subgroup specifications. `r percent(mvs$Positive[5], .01)` of these specifications indicated that internet connectivity was associated with positive well-being, while only `r percent(mvs$Negative[5], .01)` indicated negative associations.
+  With the increasing global penetration of the internet, and technologies and platforms enabled by it, their potential effects on individuals' well-being remains hotly debated. On one hand, these technologies have enabled novel forms of commerce, education, and leisure; on the other, many are worried that their use might negatively affect individuals by, for example, displacing time spent on other healthy activities. Moreover, research findings on the effects of internet technologies on well-being have been mixed and, to date, inconclusive and of limited geographic and demographic scope. In the current work, we examined the extent to which having internet access, mobile internet access, or being an active internet user affected seven well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals living in `r length(unique(dat$country))` countries. We first tested the extent to which well-being varied as a function of internet connectivity. Then, to go beyond describing average associations, we examined the potential causal effects of internet connectivity on well-being with a multiverse analysis over `r n_specs_all` plausible model and subgroup specifications. `r percent(mvs$Positive[5], .01)` of these specifications indicated that internet connectivity was associated with positive well-being, while only `r percent(mvs$Negative[5], .01)` indicated negative associations. These results indicate that internet access and active use are positive contributors to individuals' well-being.
 ---
 
 The increasing adoption and use of internet-enabled technologies and platforms has spurred debate about their potential effects on people's psychological well-being and functioning. However, even after considerable scientific attention, an understanding of the associations between internet technology use and well-being remains elusive, and results of scientific studies on this topic have been mixed. 
 
 ## Current study
 
-Our overarching aim was to estimate the extent to which internet access and use predicts psychological well-being in cross-sectional samples of `r number2(nrow(dat))` individuals from `r length(unique(dat$country))` countries between 2006 and 2021. We studied seven indicators of well-being; life satisfaction, the extent to which individuals experienced daily negative and positive experiences; two indicators of social well-being; physical well-being, and feelings of purpose. We investigated the extent to which having any access to the internet; having mobile internet; and having used internet in the past 7 days predicted those aspects of well-being.
+Our overarching aim was to estimate how and to what extent internet access, mobile internet access, and internet use might affect psychological well-being using cross-sectional samples of `r number2(nrow(dat))` individuals from `r length(unique(dat$country))` countries between 2006 and 2021. We studied seven indicators of well-being; life satisfaction, the extent to which individuals experienced daily negative and positive experiences; social well-being; physical well-being, community well-being, and experiences of purpose. We predicted these well-being indicators from whether individuals had any access to the internet, smartphone access, or whether they were active internet users.
 
 We first asked what was the average difference, among the whole sample, in well-being between those individuals who had access to or used the internet, and those who did not. That is, our first research question addressed the basic association between internet and well-being. 
 
@@ -583,53 +649,49 @@ Second, our aim was to identify the unique contributions that internet access an
 
 # Methods
 
-We analysed data from the Gallup World Poll [@gallupWorldPollMethodology2022]. Gallup World Poll (GWP) is a nationally representative (of each country's civilian, non-institutionalized, adult [15+] population) continuous annual survey of approximately 1,000 individuals from each of 164 countries, conducted from 2005 to 2022. Gallup conducts the surveys through one-hour interviews either face-to-face or via telephone, with questionnaires that are translated to the major conversational language of each country. For the GWP methodological details, see @gallupWorldPollMethodology2022. We used data from `r number2(nrow(dat))` individuals from 2006 to 2021. (There were only 5,001 respondents from three countries in 2022, so we did not analyse that year.)
+We analysed data from the Gallup World Poll [@gallupWorldPollMethodology2022]. Gallup World Poll (GWP) is a nationally representative (of each country's civilian, non-institutionalized, adult [15+] population) continuous annual survey of approximately 1,000 individuals from each of 164 countries, conducted from 2005 to 2022. Gallup conducts the surveys through one-hour interviews either face-to-face or via telephone, with questionnaires that are translated to the major conversational language of each country. For the GWP methodological details, see @gallupWorldPollMethodology2022. We used data from 2006 to 2021, because in 2005 the internet questions were answered by fewer than a quarter of respondents, and the 2022 data only contained five thousand responses from three countries. We refer to the 2006-2021 dataset below. The total sample size for this analysis was `r number2(nrow(dat))`, with `r length(unique(dat$country))` countries. The sample was ZZZ female, and the interquartile range of age was ZZZ.
 
-## Data availability
+## Data and material availability
 
-We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code, and a simulated GWP dataset, is available at [DOI]. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database.
+We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at [DOI]. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the above exclusions).
 
 ## Internet access and use
 
-The key variables that we considered as predictors measured the respondents' access and use of the internet. From 2005 to 2021, GWP has surveyed these with four items with varying coverage over time. First, GWP measures internet access with *"Does your home have access to the internet?"* (2005 to 2015). Because the coverage of existing data for this variable was very low in 2005, we used this variable from 2006 to 2015, where the mean percentage of non-missing values was `r percent(mean(x_sum$internet_home[1:10]), .1)`. From 2016 to 2022, a similar question measured overall internet access with *"Do you have access to the internet in any way, whether on a mobile phone, a computer, or some other device?"* (mean coverage `r percent(mean(x_sum$internet_access[11:16]), .1)`). Because these two questions were so similar, and to extend the range of data coverage, we merged these two to one "internet access" variable.
+The key variables that we considered as predictors measured the respondents' access and use of the internet. GWP has surveyed these with four items with varying coverage over time. First, GWP measured internet access with *"Does your home have access to the internet?"* from 2006 to 2015, where the mean percentage of non-missing values was `r percent(mean(x_sum$internet_home[1:10]), .1)`. From 2016 to 2021, a similar question measured overall internet access with *"Do you have access to the internet in any way, whether on a mobile phone, a computer, or some other device?"* (mean valid responses: `r percent(mean(x_sum$internet_access[11:16]), .1)`). Because these two questions were so similar, and to extend the range of data coverage, we merged these two to one variable indicating internet access.
 
-Second, GWP has asked about mobile internet access with *"Can your mobile phone be used to access the Internet?"* from 2017 to 2022 (mean coverage `r percent(mean(x_sum$internet_phone[12:16]), .1)`). Third, GWP has measured internet *use* with *"Have you used the internet in the past seven days, whether on a mobile phone, a computer, or some other device?"* from 2015 to 2022. However, due to poor coverage in 2015, we used this variable from 2016 to 2021 (mean coverage `r percent(mean(x_sum$internet_past7days[11:16]), .1)`).
-
-All of these items had binary "Yes"/"No" response options, and respondents were given the option to decline an answer or report that they didn't know. We coded the latter two as missing values.
+Second, GWP asked about mobile internet access with *"Can your mobile phone be used to access the Internet?"* from 2017 to 2021 (mean valid responses: `r percent(mean(x_sum$internet_phone[12:16]), .1)`). Third, GWP measured internet use with *"Have you used the internet in the past seven days, whether on a mobile phone, a computer, or some other device?"* from 2015 to 2021 (mean valid responses: `r percent(mean(x_sum$internet_past7days[11:16]), .1)`). All of these items had binary "Yes"/"No" response options, and respondents were given the option to decline an answer or report that they didn't know. We coded the latter two as missing values.
 
 ## Well-being outcomes
 
-We focused on eight measures of well-being, broadly defined, in the Gallup World Poll: Life satisfaction, negative and positive experiences, social life satisfaction. In addition to these four outcomes, which were included in the GWP from 2005 to 2022, we studied four indicators from the Gallup-Sharecare Global Well-being Index™ (GWPI), which is a "barometer of individuals perceptions of their own well-being". 
+We focused on seven measures of well-being, broadly defined, in the Gallup World Poll: Life satisfaction, negative and positive experiences, and social life satisfaction. In addition to these four outcomes, which were included in the GWP from 2006 to 2021, we studied three indicators from the Gallup-Sharecare Global Well-being Index™ (GWPI), which is a "barometer of individuals perceptions of their own well-being" [@gallupWorldPollMethodology2022]. 
 
 Life satisfaction was measured with a single item: *"Please imagine a ladder, with steps numbered from 0 at the bottom to 10 at the top. The top of the ladder represents the best possible life for you and the bottom of the ladder represents the worst possible life for you. On which step of the ladder would you say you personally feel you stand at this time?"*, and respondents chose a number from 0 to 10. We rescaled this item to range from 0 to 1.
 
 Negative and positive experiences are both measured through a set of five Yes/No items. For negative experiences, respondents answered the prompts *"Did you experience the following feelings during a lot of the day yesterday? How about physical pain / worry / sadness / stress / anger?"*. For positive experiences, the items were *"Did you feel well-rested yesterday?"*; *"Were you treated with respect all day yesterday?"*; *"Did you smile or laugh a lot yesterday?"*; *"Did you learn or do something interesting yesterday?*"; and *"Did you experience the following feelings during a lot of the day yesterday? How about enjoyment?"*.
 
-In addition, we included two variables intended to measure individuals' "social support structure and opportunities to make friends" (*"Someone in your life always encourages you to be healthy"* and *"Your friends and family give you positive energy every day"*). We included these items as a proxy for social well-being. While we recognize their potentially limited validity, we thought that, from the variables available, they best corresponded to the inverse of loneliness, an important and much-studied aspect of well-being in connection to digital technologies.
+In addition, we included two variables intended to measure individuals' "social support structure and opportunities to make friends" (*"Someone in your life always encourages you to be healthy"* and *"Your friends and family give you positive energy every day"*). We included these items as a proxy for social well-being. While we recognize their potentially limited validity, we thought that, from the variables available, they best approximated an absence of loneliness, an important and much-studied aspect of well-being in connection to digital technologies.
 
-In 2013 through 2015, the GWP database also included a (Gallup-Sharecare) Global Well-being Index™ (GWPI), which measured (among others) experiences of purpose (*"liking what one does each day and being motivated to achieve one’s goals"*); social well-being (*"having supportive relationships and love in your life"*); and physical well-being, from which we included the item *"In the last seven days, you have felt active and productive every day"*. The sense of purpose was measured with prompts *"You like what you do every day"* and *"You learn or do something interesting every day"*. All items included the prompt *"Thinking about your life in general, please rate your level of agreement with each of the following using a five-point scale, where 5 means you STRONGLY AGREE and 1 means you STRONGLY DISAGREE. You may choose any of the numbers 1, 2, 3, 4, or 5."* However, because the GWPI was measured only between 2013 and 2015, we present those results separately in the appendix. 
+In 2013 through 2015, the GWP database also included a (Gallup-Sharecare) Global Well-being Index™ (GWPI), which measured (among others) experiences of purpose (*"liking what one does each day and being motivated to achieve one’s goals"*); community well-being (*"liking where one lives, feeling safe and having pride in one’s community"*); and physical well-being (*"having good health and enough energy to get things done daily"*). Experiences of purpose were measured with prompts *"You like what you do every day"* and *"You learn or do something interesting every day"*. Community well-being was prompted with *"The city or area where you live is a perfect place for you"* and *"In the last 12 months, you have received recognition for helping to improve the city or area where you live"*. Physical well-being had prompts *"In the last seven days, you have felt active and productive every day"* and *"Your physical health is near-perfect"*. All GWPI items included the prompt *"Thinking about your life in general, please rate your level of agreement with each of the following using a five-point scale, where 5 means you STRONGLY AGREE and 1 means you STRONGLY DISAGREE. You may choose any of the numbers 1, 2, 3, 4, or 5."* However, because the GWPI was measured only between 2013 and 2015, we present those results separately in the appendix. 
 
-While these scales are not psychometrically validated, Gallup cites prominent scientists as having helped with their development (@gallupWorldPollMethodology2022, p. 5). While we find that statement of dubious value, we believe that the extensive scope of the dataset, across both time and countries, makes these variables uniquely valuable objects of study.
+While these scales are not psychometrically validated, Gallup cites prominent scientists as having helped with their development (@gallupWorldPollMethodology2022, p. 5). While this statement doesn't make up for these scales' lack of validation, we believe that the extensive scope of the dataset, across both time and countries, makes them uniquely valuable objects of study.
 
 ## Covariates
 
-Our intent in this study was to approach the independent contributions of internet access and use on well-being. To that end, we adjusted our models for plausible covariates that were available in the GWP. First, previous research has highlighted important differences between age groups and sexes in their levels of well-being and use of internet technologies, and associations between the two. We therefore conducted our analyses separately for each sex and age group. However, to reduce the computational complexity of our analyses, and because there are no strong a priori reasons to assume large differences between adjacent ages, we split the continuous age variable into eight categories (15 to 24, 25 to 34, 35 to 44, 45 to 54, 55 to 64, and 65 +).
+In addressing our second research question, our aim was to approach the independent contributions of internet access and use on well-being. To that end, we adjusted for plausible (and available) covariates in our models that might otherwise mask or bias any independent contributions of internet access on well-being, or create spurious associations. We chose six variables to represent such potentially confounding factors: The respondent's income, educational, work, and relationship statuses, their ability to meet basic needs for food and shelter, and whether or not they reported having health problems.
 
-Second, internet platforms and technologies are not static but continuously developed in order to better serve their users, and to be more engaging. Because this has led to worries that their effects on individuals' well-being might change over time [@vuorreThereNoEvidence2021], we analysed the data separately for each year. 
+The GWP reports respondents' monthly household income in their local currencies. GWP used hot deck imputation for individuals who reported an income range (~15%) or who did not provide responses (~15%). GWP then converted those values to international dollars using the World Bank's purchasing power parity conversion factor, with the intent of making income estimates comparable across all respondents and countries. In our analyses, we log-transformed income. The GWP coded each respondent's educational status to one of three categories: Elementary education or less (up to eight years of education), some secondary education (nine to 15 years), and tertiary (education beyond high school). We used this variable as a continuous predictor. Since 2009, GWP measured work status with five levels related to the quantity of work, but we recoded this as a binary employed vs. not variable. Relationship status was measured with a question about marital status with six response options. We recoded this to a binary in relationship vs. not variable. Basic need satisfaction was measured with two items querying whether the respondent had had difficulties in providing for their food and shelter in the past 12 months. Respondents also answered "Do you have any health problems that prevent you from doing any of the things people your age normally can do?" with a binary yes/no response format.
 
-Third, because individuals' levels of well-being and internet access (and use) are likely associated with multiple contextual factors, we chose a set of plausible covariates to adjust our models in an attempt to isolate the independent contributions of internet access and use on well-being. To that end, we used the respondent's income, educational, work, and relationship statuses, and whether or not they reported having health problems as covariates in our models.
+In addition to these covariates, we identified meaningful subgroups in the data. First, previous research has highlighted important differences between age groups and sexes in their levels of well-being and use of internet technologies, and associations between the two. We therefore conducted our analyses separately for each sex and age group. However, to reduce the computational complexity of our analyses, and because there are no strong a priori reasons to assume large differences between adjacent ages, we split the continuous age variable into six categories (15 to 24, 25 to 34, 35 to 44, 45 to 54, 55 to 64, and 65 +). Second, internet platforms and technologies are not static but instead technologies and media that are continuously developed and whose affordances changes over time. Because this has led to worries that their effects on individuals' well-being might change over time [@vuorreThereNoEvidence2021], we analysed the data separately for each year. 
 
-The GWP queries respondents' for their monthly household income in their local currencies. GWP used hot deck imputation for individuals who reported an income range (~15%) or who did not provide responses (~15%). GWP then converted those values to International Dollars using the World Bank's purchasing power parity conversion factor, with the intent of making income estimates comparable across all respondents and countries. In our analyses, we log-transformed income. The GWP coded each respondent's educational status to one of three categories: Elementary education or less (up to eight years of education), some secondary education (nine to 15 years), and tertiary (education beyond high school). We used this variable as a continuous predictor with values 0, 1, and 2. Since 2009, GWP measured work status with five levels related to the quantity of work, but we recoded this as a binary employed vs. not variable. Relationship status was measured with a question about marital status with six response options. We recoded this to a binary in relationship vs. not variable. Respondents also answered "Do you have any health problems that prevent you from doing any of the things people your age normally can do?" with a binary yes/no response format.
+## Data analysis
 
-## Multiverse analysis
+Our general data-analytic approach was a regression model predicting one outcome (e.g. life satisfaction) from an intercept and one predictor (e.g. internet access). Where the outcome consisted of multiple items, we took the mean. In addition, we within-country centered all our predictors, so as to not include between-country differences in the coefficients, which consequently indicated contrasts between individuals who (e.g.) had access to the internet to those who didn't, within a given country. In addition, because the data were nested within countries, we specified a multilevel model where the intercept and coefficient of the internet predictor varied randomly over countries. We addressed our first research question about average contrasts with a multilevel model of well-being outcome $y$ for observation $i$ and country $j$ on internet predictor $x$, specified as
 
-Our general data-analytic approach was a regression model predicting one outcome (e.g. life satisfaction) from an intercept, one predictor (e.g. overall internet access), and zero or more of the covariates discussed above. Where the outcome consisted of multiple items, we took the mean. We conducted models separately for each sex, age group, and year. Because the data for each year, sex, and age was nested within countries, we specified a multilevel model where the intercept and coefficient of the internet predictor varied randomly over countries. For well-being outcome $y$ and internet predictor $x$, the model was
-
+$$
 \begin{align*} 
-y_i &\sim \text{Normal}(\mu_i, \sigma^{2}), \\
-\mu_i &= \alpha_{0} + \beta_{0\text{country}[i]} +
-  (\alpha_{1} + \beta_{1\text{country}[i]})x_i
-  \dots, \\
+y_{ij} &\sim \text{Normal}(\mu_{ij}, \sigma^{2}), \\
+\mu_{ij} &= \alpha_{0} + \beta_{0j} +
+  (\alpha_{1} + \beta_{1j})(x_{ij} - \bar{x}_{.j}), \\
 \begin{bmatrix} 
 \beta_0 \\ \beta_1 
 \end{bmatrix} 
@@ -642,10 +704,11 @@ y_i &\sim \text{Normal}(\mu_i, \sigma^{2}), \\
   \end{bmatrix} 
 \right).
 \end{align*}
+$$
 
-In the above, $i$ indexes rows in the data, and $j$ indicates one of the 164 countries. We wrote $\dots$ to represent a particular combination of the covariates (including none), of which there were 32. In addition to the model specifications, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights.
+In this manner, $\alpha_1$ is the difference in well-being indicator $y$ between individuals who had access to the internet and those who didn't, for the average country. For our second, primary, research question we then conducted a multiverse analysis over different covariate permutations on this base model and subgroups in the data. We analysed all the possible ways in which the covariates could be included in this model as fixed effects (including no covariates), leading to XXX different covariate specifications. In addition to model specifications and subgroups, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights. Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, years, covariate combinations, and whether model weights were included or not, leading to `r number2(n_specs_all)` specifications. (This number was smaller than the theoretical number of specifications, because not all combinations were possible (e.g. mobile internet access did not exist before 2017)). 
 
-Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, years, covariates, and whether model weights were included or not, leading to `r number2(n_specs_all)` specifications. However, because not all combinations were possible (e.g. mobile internet access did not exist before 2017), our final multiverse consisted of `r number2(n_specs)` specifications. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses.
+Because an additional concern with this analytic strategy was a diminishing sample size per analysis (reported below), we conducted a second multiverse analysis as a robustness check. That analysis was otherwise similar to our main multiverse analysis, but instead of subgrouping data by year we used year and its interaction with countries as random effect clusters in the multilevel model. In addition to examining the robustness of our results, this additional analysis was motivated by our prior study, where differences in technology-use and well-being associations over time were very small [@vuorreThereNoEvidence2021]. We report this robustness analysis in Appendix B. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses and the lme4 package for estimating the multilevel models [batesFittingLinearMixedEffects2015].
 
 # Results
 
@@ -709,7 +772,9 @@ tmp <- fits_avg %>%
   summarise(across(c(estimate, std.error), median))
 ```
 
-Before conducting our full multiverse analysis, we addressed our first research question concerning the overall associations between internet access and use, and well-being. To do so, we regressed each outcome on each predictor with the multilevel model described above, but without using covariates or weights, and using all available data without partitioning it by sex, age, or time. 
+Our first research question concerned the average differences in well-being between individuals who had access to (mobile) internet or had used the internet in the past seven days, and those who didn't. We display the results of this analysis in Figure \@ref(fig:fig-rq1). The associations between (mobile) internet access and use and well-being were consistently positive. For the average country, individuals who had access to the internet reported approximately 0.08 units greater life satisfaction, positive experiences, and social life satisfaction, and 0.06 units lower negative experiences than individuals who did not have access. Results across the other two internet access and use predictors were of the same sign and comparable magnitude. To put these magnitudes to context, the models' standard deviations in well-being across countries ranged from XXX to XXX, representing the natural variation in well-being between countries. The observed differences in well-being between individuals who had access to or used the internet were of comparable magnitude. This suggests that the well-being differences, although they don't indicate causality and were numerically small, were of meaningful magnitude.
+
+Moreover, Figure \@ref(fig:fig-rq1) shows individual countries' observed difference scores as small points; they were very consistently in the same direction as the average contrasts, indicating that this difference held similarly across most countries. These results showed uniformly across the four well-being outcomes that individuals who had access to, or actively used the internet reported meaningfully greater well-being than those who did not.
 
 ```{r}
 #| label: fig-rq1
@@ -873,9 +938,6 @@ tmp2 %>%
   )
 ```
 
-
-The overall association between internet access and use and well-being was consistently positive (Figure \@ref(fig:fig-rq1)). On average, across the three internet predictors and four well-being outcomes, individuals who had access to (or used) the internet reported (median) `r number(tmp$estimate, .01)` units (median SE: `r number(tmp$std.error, .001)`) greater well-being than those who did not (we reversed the coefficients for negative experiences for these aggregate numbers). Figure \@ref(fig:fig-rq1) shows these data aggregated for each country, and the spread across countries of differences between people who had access to (or used) the internet and who didn't. These results showed, uniformly across the four well-being outcomes, that individuals who had access to, or actively used, the internet reported greater well-being than those who did not.
-
 ```{r}
 #| label: tbl-multiverse
 #| include: true
@@ -903,11 +965,11 @@ out_sum_2 %>%
   )
 ```
 
-However, although the estimates in Figure \@ref(fig:fig-rq1) were surprisingly uniform across outcomes and predictors, they did not yet address our second, main research question: The extent to which internet access and use might independently contribute to individuals' well-being. To best do so, while at the same time incorporate uncertainty in how, where, or for whom to study this association, we next turned to the multiverse analysis. In this analysis, we examined the association between well-being and internet use over `r number2(n_specs)` model specifications (and an additional `r number2(n_specs_gwb)` specifications for the GWBI outcomes in the appendix).
+However, although the estimates in Figure \@ref(fig:fig-rq1) were surprisingly uniform across outcomes and predictors, they did not yet address our second, main research question: The extent to which internet access and use might independently contribute to individuals' well-being, and whether the associations might be unique to specific subgroups of individuals. To best answer this question, while at the same time appreciate the theoretical uncertainty in how, where, or for whom to study this association, we next turned to our main multiverse analysis. In the analysis presented here, we examined the association between well-being and internet access or use over `r number2(n_specs_main)` model specifications. In appendix A, we present an additional `r number2(n_specs_gwb)` models examining the GWBI outcomes in 2013 to 2015.
 
-We show the average results of this multiverse analysis in Table \@ref(tab:tbl-multiverse). First, for life satisfaction, the median sample size across specifications was `r out_sum_2$N[[1]]`. On average, answering 'Yes' to an internet access or use question was associated with a `r out_sum_2$Median[[1]]` unit increase in life satisfaction, with the central 50% of associations lying in the `r out_sum_2$IQR[[1]]` interval. `r out_sum_2$Positive[[1]]` of the estimated associations were positive. Numerical results for the other three well-being outcomes were consistent, and the total proportion of specifications that resulted in negative associations was only `r out_sum_2$Negative[[5]]`.
+We summarize the results of this multiverse analysis in Table \@ref(tab:tbl-multiverse). First, for life satisfaction, the median sample size across specifications was `r mvs$N[[1]]`. Answering 'Yes' to an internet access or use question was associated with a median `r mvs$Median[[1]]` unit increase in life satisfaction. The central 50% of the distribution of associations was within the `r mvs$IQR[[1]]` interval. The association between internet access or use and life satisfaction was positive in `r mvs$Positive[[1]]` of model specifications. Numerical results for the other three well-being outcomes were of similar magnitude, and the total proportion of specifications that resulted in negative associations was only `r mvs$Negative[[5]]`.
 
-Figure \@ref(fig:fig-multiverse) shows that across all model specifications, the multilevel model's estimated association between internet access and use, for the average country, was very consistently positive. Each vertical slice of figure \@ref(fig:fig-multiverse) identifies a model specification, indexed on the x-axis. For example, one point could represent the association between internet access (X = Internet access in panel B) for males aged 65 or over (Age), with a model that included only an intercept (Covariates = 1) as additional covariates, in the year 2019, for a model estimated without weights (No weights).
+Figure \@ref(fig:fig-multiverse) shows that across all model specifications, the multilevel model's estimated association between internet access and use, for the average country, was very consistently positive. Each vertical slice of figure \@ref(fig:fig-multiverse) identifies a model specification, indexed on the x-axis. The resulting estimated association is displayed in panel A. The model's specification is the combination of covariates and grouping variables enumerated in panel B. For example, one point could represent the association between internet access (X = Internet access in panel B) for males aged 65 or over (Age), with a model that included only an intercept (Covariates = 1) as additional covariates, in the year 2019, for a model estimated without weights (No weights).
 
 ```{r}
 #| include: true
@@ -1091,6 +1153,7 @@ fits %>%
   )
 ```
 
+A visual examination of Figure \@ref(fig:fig-multiverse) did not suggest any strong patterns in subgroups or covariates such that there would have been an especially strong relation for a specific subgroup or covariate inclusion. If that were the case, we should have observed a clustering of points in the dashboard along a single covariate or grouping factor indicating a distinctly strong relation among one or more of the outcomes, which we did not. However, the large number of specifications in this figure might make it difficult to tease apart factors that might have led to meaningful variation among the estimated associations. To help see the variance among results with respect to covariate specification, Figure XYZ shows the median associations between each outcome and predictor, separately for each covariate specification. From this figure, we observe that while generally increasing the number and complexity of covariates in the model did somewhat decrease the magnitudes of the estimated associations, they remained positive and significantly so for most cases. This observations shows that even after adjusting for all possible combinations of covariates, the relationships between internet access or use and well-being remained positive. In turn, this suggests that the contributions of internet access and use on well-being were independent of the covariates we selected for, and thus might indicate causal relations.
 
 ```{r}
 #| eval: false
@@ -1146,6 +1209,7 @@ fits %>%
   )
 ```
 
+We then focused on another aspect of potential variation among the associations between internet access or use and well-being. Figure XYZ shows the median associations for each demographic 
 
 # Discussion
 
