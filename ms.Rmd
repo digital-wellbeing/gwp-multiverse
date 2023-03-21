@@ -1,39 +1,27 @@
 ---
-title: TITLE
-shorttitle: SHORT TITLE
-leftheader: SHORT TITLE
+title: 'A multiverse analysis of the associations between internet use and well-being'
+shorttitle: Internet and well-being
+leftheader: Internet and well-being
 author: 
   - name: Matti Vuorre
     affiliation: 1
     corresponding: yes
     address: Oxford Internet Institute, University of Oxford
     email: matti.vuorre@oii.ox.ac.uk
-    role:
-      - role mcrole
-  - name: Author McAuthor
-    affiliation: 2
-    address: Address McAddress
-    email: email@mcemail.com
-    role:
-      - role mcrole
-
+  - name: Andrew K. Przybylski
+    affiliation: 1
+    email: andy.przybylski@oii.ox.ac.uk
 affiliation:
   - id: 1
     institution: Oxford Internet Institute, University of Oxford
-  - id: 2
-    institution: Institution McInstitution
-
 authornote: |
   \noindent \textbf{This manuscript is not yet peer-reviewed.}
   
-abstract: |
-  Many things, few words.
-  
-keywords: words, key
-wordcount: "`r wordcountaddin:::word_count(filename = 'ms.Rmd')`"
+keywords: well-being, internet technology, technology effects
+wordcount: '`r scales::number(wordcountaddin:::word_count("ms.Rmd"), big.mark = ",")`'
 bibliography: "references.bib"
 floatsintext: yes
-linenumbers: yes
+linenumbers: no
 draft: no
 mask: no
 figurelist: no
@@ -42,25 +30,1205 @@ footnotelist: no
 csl: "`r system.file('rmd', 'apa7.csl', package = 'papaja')`"
 documentclass: apa7
 classoption: jou
+header-includes:
+  - |
+    \setlength{\parskip}{0pt}
+    \setlength\parindent{24pt}
 output: 
   papaja::apa6_pdf:
     number_sections: false
     keep_tex: false
   papaja::apa6_docx: 
     number_sections: false
+editor_options: 
+  chunk_output_type: console
 ---
 
-```{r setup, include = FALSE}
+```{r}
+#| label: setup
+#| include: false
 library(papaja)
+library(scales)
+library(knitr)
+library(lme4)
+library(ggh4x)
+library(emmeans)
+library(ggside)
+library(ggbeeswarm)
+library(broom.mixed)
+library(patchwork)
+library(ggdist)
+library(corrr)
+library(tidyverse)
+library(ragg)
+opts_chunk$set(
+  include = FALSE,
+  cache = TRUE,
+  dev = "ragg_png"
+)
 
 # Parallel computation options
 MAX_CORES <- as.numeric(Sys.getenv("MAX_CORES"))
 if (is.na(MAX_CORES)) MAX_CORES <- parallel::detectCores(logical = FALSE)
+CORES <- MAX_CORES - 2
+theme_set(
+  theme_linedraw(base_size = 9.6) +
+    theme(
+      strip.background = element_rect(fill = "gray90", color = "gray90"),
+      strip.text = element_text(color = "black", hjust = 0),
+      panel.grid = element_blank()
+    )
+)
+
+# Function to clean up variable names for plots and tables
+sanitize_labels <- function(x, pad7 = TRUE) {
+  # Make internet predictors look ok
+  x <- x %>% 
+    str_replace("_", " ") %>% 
+    str_to_sentence() %>% 
+    str_replace("Gwb", "GWBI")
+  if (pad7) x <- str_replace(x, "7", " 7 ")
+  x
+}
+
+# Function to print large numbers
+number2 <- function(x, ...) number(x, ..., big.mark = ',')
 ```
 
-R [@rcoreteamLanguageEnvironmentStatistical2022]
+```{r}
+#| label: data-clean
+path <- "data-raw/gwp.rds"
+if (dir.exists("data-raw/gallup") & !file.exists(path)) {
 
-\clearpage
+  # List of indices
+  ix <- list(
+    life_satisfaction = c("WP16"),
+    negative_experiences = c("WP68", "WP69", "WP70", "WP71", "WP74"),
+    positive_experiences = c("WP60", "WP61", "WP63", "WP65", "WP67"),
+    social_life = c("WP27", "WP10248"), 
+    laworder = c("WP112", "WP113", "WP117", "WP118"), 
+    foodshelter = c("WP40", "WP43"), 
+    gwb_purpose = c("WP14442", "WP14443"),
+    gwb_community = c("WP14450", "WP14451"),
+    gwb_physical = c("WP14448", "WP14449")
+  )
+  
+  library(haven)
+  library(labelled)
+  # Load relevant variables
+  dat <- read_spss(
+    "data-raw/gallup/The_Gallup_042722.sav", 
+    col_select = c(
+      WGT,
+      WP5, 
+      YEAR_CALENDAR,
+      WP1220,
+      WP1219, 
+      WP3117,
+      WP23, 
+      WP1223, 
+      EMP_2010,
+      INCOME_2,
+      WP2319,
+      WP16056,
+      WP39,
+      WP19544,
+      WP15862,
+      all_of(
+        unlist(ix)
+      )
+    )
+  )
+  
+  # Replace values with labels DK and Refused to proper NAs
+  val_labels(dat)  # These are the current value labels
+  to_na <- function(x) {
+    na_values(x) <- val_labels(x)[c("(DK)", "(Refused)")]
+    x
+  }
+  dat <- dat %>% 
+    mutate(across(c(everything(), -WP1219, -WP1220, -EMP_2010, -WP3117), to_na))
+  na_values(dat$WP3117) <- val_labels(dat$WP3117)[c("(DK)", "(RF)")]
+  dat <- user_na_to_na(dat)
+  val_labels(dat)
+  str(dat)
+  
+  dat <- dat %>% 
+    mutate(
+      country = fct_drop(as_factor(WP5)),
+      year = as.integer(YEAR_CALENDAR),
+      age = as.integer(ceiling(WP1220)),
+      sex = factor(as_factor(WP1219), levels = c("Female", "Male")),
+      weight = WGT,
+      healthproblems = factor(as_factor(WP23), levels = c("No", "Yes")),
+      relationship = fct_collapse(
+        as_factor(dat$WP1223),
+        Single = c(
+          "Single/Never been married", 
+          "Separated", 
+          "Divorced", 
+          "Widowed"
+        ),
+        Relationship = c("Married", "Domestic partner")
+      ),
+      income = as.numeric(INCOME_2),
+      income_feeling = 4 - as.integer(WP2319),
+      education = as.numeric(WP3117),
+      work = EMP_2010,
+      internet_access = factor(as_factor(WP16056), levels = c("No", "Yes")),
+      internet_past7days = factor(as_factor(WP15862), levels = c("No", "Yes")),
+      internet_home = factor(as_factor(WP39), levels = c("No", "Yes")),
+      internet_phone = factor(as_factor(WP19544), levels = c("No", "Yes")),
+      .keep = "unused",
+      .before = 1
+    )
+  
+  # Binary work
+  dat$work <- as_factor(dat$work)
+  count(dat, work)
+  dat$work <- fct_collapse(
+    dat$work, 
+    no = c("Unemployed", "Out of workforce"), 
+    yes = c(
+      "Employed full time for an employer", 
+      "Employed full time for self", 
+      "Employed part time do not want full time", 
+      "Employed part time want full time")
+  )
+  dat$work <- factor(dat$work, levels = c("no", "yes"), labels = c("No", "Yes"))
+  
+  # Fix one of each 13yr and 101yr
+  dat$age <- if_else(dat$age < 15L, 15L, if_else(dat$age > 100L, 100L, dat$age))
+  summary(dat$age)
+  
+  # primary index variables
+  dat %>% 
+    select(all_of(unlist(ix[1:4], use.names = FALSE))) %>% 
+    generate_dictionary()
+  dat <- dat %>% 
+    mutate(
+      # Life satisfaction is already in correct order but rescale
+      life_satisfaction = if_else(
+        WP16 %in% 98:99, 
+        as.numeric(NaN), 
+        as.numeric(WP16) / 10
+      ),
+      # Negative experiences, positive experiences, and "loneliness"
+      # 1 is yes, 2 is no; reverse
+      across(
+        all_of(as.character(unlist(ix[2:4]))), 
+        ~as.integer(2 - .)
+      )
+    ) %>% 
+    mutate(
+      negative_experiences = rowMeans(
+        select(., WP68, WP69, WP70, WP71, WP74), na.rm = TRUE
+      ),
+      positive_experiences = rowMeans(
+        select(., WP60, WP61, WP63, WP65, WP67), na.rm = TRUE
+      ),
+      social_life = rowMeans(
+        select(., WP27, WP10248), na.rm = TRUE
+      )
+    )
+  
+  
+  # Then the other scales
+  dat %>% 
+    generate_dictionary()
+  dat <- dat %>% 
+    mutate(
+      # Law and order
+      WP112 = 2 - WP112,
+      WP113 = 2 - WP113,
+      WP117 = WP117 - 1,
+      WP118 = WP118 - 1,
+    ) %>% mutate(
+      laworder = rowMeans(
+        select(., WP112, WP113, WP117, WP118), na.rm = TRUE
+      ),
+      # Food and shelter [note below], 
+      foodshelter = rowMeans(
+        select(., WP40, WP43), na.rm = TRUE
+      ) - 1,
+      # GWPI items
+      gwb_purpose = (
+        rowMeans(select(., WP14442, WP14443), na.rm = TRUE) - 1
+      ) / 4,
+      gwb_community = (
+        rowMeans(select(., WP14450, WP14451), na.rm = TRUE) - 1
+      ) / 4,
+      gwb_physical = (
+        rowMeans(select(., WP14448, WP14449), na.rm = TRUE) - 1
+      ) / 4,
+      .keep = "unused"
+    )
+  
+  # Remove now unnecessary variables
+  glimpse(dat)
+  dat <- dat %>% 
+    select(
+      -c(
+        WP16, WP40, WP43, 
+        WP112, WP113, WP117, 
+        WP118, WP1223, starts_with("WP144")
+      )
+    )
+  
+  # Save
+  write_rds(dat, path)
+}
+dat <- read_rds(path)
+
+# A few dozen missing sex and age
+dat <- drop_na(dat, sex, age) %>% 
+  mutate(sex = fct_drop(sex))
+
+# Income logp1
+dat <- mutate(dat, income = log(income+1))
+
+# Count observations and take out years with small N
+# Summarise original values
+x_sum <- dat %>% 
+  group_by(year) %>% 
+  summarise(
+    n = n(),
+    countries = length(unique(country)),
+    across(c(starts_with("internet")), ~sum(!is.na(.)))
+  ) %>% 
+  mutate(
+    across(starts_with("internet"), ~ . / n)
+  ) 
+# Too little data in 2022, and poor internet value coverage in 2005
+dat <- filter(dat, between(year, 2006, 2021))
+
+# Create combined internet access variable
+dat <- dat %>% 
+  mutate(
+    internet_access = if_else(year < 2016, internet_home, internet_access)
+  ) %>% 
+  select(-internet_home)
+yr <- paste(range(dat$year), collapse = " to ")
+```
+
+```{r}
+#| label: multiverse-specifications
+
+# We will be running two multiverse analyses. The first (main one) uses year as a subgroup. The second (robustness check) uses year in the data but uses random effects over years and the country-year interaction.
+
+dat_mv <- dat %>% 
+  select(
+    country, year, 
+    age, sex, 
+    weight,
+    education, work,
+    healthproblems, relationship,
+    foodshelter, income,
+    starts_with("internet"),
+    starts_with("gwb"),
+    life_satisfaction, negative_experiences, 
+    positive_experiences, social_life
+  ) %>% 
+  drop_na(age) %>% 
+  mutate(
+    age = cut(
+      age, 
+      breaks = c(15, 25, 35, 45, 55, 65, 101), 
+      labels = c("15 to 24", "25 to 34", "35 to 44", "45 to 54", "55 to 64", "65 +"),
+      include.lowest = TRUE, right = FALSE
+    )
+  ) 
+
+dat_mv_reyear <- dat_mv %>% 
+  group_by(country) %>% 
+  mutate(
+    # Center all covariates and predictors
+    across(
+      c(education, income),
+      ~. - mean(., na.rm = TRUE)
+    ),
+    across(
+      c(healthproblems, foodshelter, relationship, work, starts_with("internet")), 
+      ~((as.numeric(.)-1) - mean((as.numeric(.)-1), na.rm = TRUE))
+    )
+  ) %>% 
+  ungroup()
+
+dat_mv <- dat_mv %>% 
+  group_by(country, year) %>% 
+  mutate(
+    # Center all covariates and predictors
+    across(
+      c(education, income),
+      ~. - mean(., na.rm = TRUE)
+    ),
+    across(
+      c(healthproblems, foodshelter, relationship, work, starts_with("internet")), 
+      ~((as.numeric(.)-1) - mean((as.numeric(.)-1), na.rm = TRUE))
+    )
+  ) %>% 
+  ungroup()
+
+#' Expand a vector of covariate names to all their combinations
+#'
+#' For example expand_covariate(c("age", "sex")) returns
+#' c("age", "sex", "age + sex", "1")
+#'
+#' @param covariate e.g. c("age", "sex")
+#'
+#' @return a character vector
+expand_covariate <- function(covariate) {
+  list(
+    "1",
+    do.call(
+      "c", 
+      map(seq_along(covariate), ~combn(covariate, .x, FUN = list))) %>%
+      map(~paste(.x, collapse = " + "))
+  ) %>%
+    unlist
+}
+
+No <- function(formula, data) {
+  fit <- lmer(formula = formula, data = data, weights = rep(1, nrow(data)))
+  out <- tidy(fit, conf.int = TRUE)
+  bind_cols(out, n = nobs(fit))
+}
+Yes <- function(formula, data) {
+  fit <- lmer(formula = formula, data = data, weights = weight)
+  out <- tidy(fit, conf.int = TRUE)
+  bind_cols(out, n = nobs(fit))
+}
+No <- possibly(No, tibble(n = 0))
+Yes <- possibly(Yes, tibble(n = 0))
+
+ys <- c(
+    "life_satisfaction",
+    "negative_experiences",
+    "positive_experiences",
+    "social_life",
+    "gwb_purpose", "gwb_community", "gwb_physical"
+  )
+xs <- c(
+    "internet_access",
+    "internet_past7days",
+    "internet_phone"
+  )
+cs <- c(
+    "healthproblems",
+    "relationship",
+    "education",
+    "work",
+    "income",
+    "foodshelter"
+  ) %>% expand_covariate()
+
+specs <- expand_grid(
+  year = unique(dat_mv$year),
+  distinct(dat_mv, sex, age),
+  y = ys,
+  x = xs,
+  covariate = cs,
+  weights = c("No", "Yes")
+) %>% 
+  mutate(
+    formula = str_glue("{y} ~ {x} + {covariate} + ({x} | country)")
+  )
+
+# Subset the specs to things that exist in the data
+specs <- specs %>% 
+  filter(
+    !(x == "internet_phone" & year < 2017),  # Existed 2017 onwards
+    !(x == "internet_past7days" & year < 2015), # 2015 onwards
+    !(str_starts(y, "gwb_") & !between(year, 2013, 2015)) # only these years
+  )
+
+specs_reyear <- expand_grid(
+  distinct(dat_mv_reyear, sex, age),
+  y = ys,
+  x = xs,
+  covariate = cs,
+  weights = c("No", "Yes")
+) %>% 
+  mutate(
+    formula = str_glue(
+      "{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)"
+    )
+  )
+```
+
+```{r}
+#| label: multiverse-run
+dir.create("tmp", FALSE)
+path <- "tmp/multiverse-lmer.rds"
+path_reyear <- "tmp/multiverse-lmer-reyear.rds"
+if (!file.exists(path)) {
+  
+  library(furrr)
+  plan(multisession, workers = CORES)
+  
+  # Pass these global objects to `future_pmap()`
+  opts <- furrr_options(
+    globals = list(
+      dat_mv = dat_mv, dat_mv_reyear = dat_mv_reyear, 
+      No = No, Yes = Yes
+    ),
+    packages = c("lme4", "purrr", "dplyr", "broom.mixed")
+  )
+  
+  specs <- specs %>% 
+    mutate(
+      out = future_pmap(
+        list(weights, formula, year, sex, age),
+        ~do.call(
+          what = ..1, 
+          args = list(
+            formula = ..2, 
+            data = filter(
+              dat_mv, 
+              year == ..3, 
+              sex == ..4, 
+              age == ..5
+            )
+          )
+        ),
+        .options = opts
+      )
+    ) %>% 
+    unnest(out) %>% 
+    filter(n > 0)
+  saveRDS(specs, path)
+  
+  specs_reyear <- specs_reyear %>% 
+    mutate(
+      out = future_pmap(
+        list(weights, formula, sex, age),
+        ~do.call(
+          what = ..1, 
+          args = list(
+            formula = ..2, 
+            data = filter(
+              dat_mv_reyear, 
+              sex == ..3, 
+              age == ..4
+            )
+          )
+        ),
+        .options = opts
+      )
+    ) %>% 
+    unnest(out) %>% 
+    filter(n > 0)
+  saveRDS(specs_reyear, path_reyear)
+  
+} else {specs <- readRDS(path)}
+
+specs_gwb <- specs %>% filter(str_detect(y, "gwb_"))
+specs <- specs %>% filter(!str_detect(y, "gwb_"))
+
+n_specs_main <- specs %>% 
+  filter(term == x) %>% 
+  nrow()
+n_specs_gwb <- specs_gwb %>% 
+  filter(term == x) %>% 
+  nrow()
+n_specs_all <- n_specs_main + n_specs_gwb
+
+mv <- specs %>% 
+  filter(term == x) %>% 
+  arrange(estimate, y) %>% 
+  group_by(y) %>% 
+  mutate(i = 1:n()) %>% 
+  ungroup() %>% 
+  mutate(sig = sign(conf.low) == sign(conf.high)) %>% 
+  mutate(
+    decision = case_when(
+      conf.low < 0 & conf.high < 0 ~ "Negative",
+      conf.low > 0 & conf.high > 0 ~ "Positive",
+      !sig ~ "Not significant"
+    ) %>% 
+      factor(levels = c("Negative", "Not significant", "Positive"))
+  ) 
+
+mvs <- mv %>% 
+  reframe(
+    estimate = quantile(estimate, probs = c(.25, .5, .75)), 
+    quantile = c(.25, .5, .75),
+    .by = c(y)
+  ) %>% 
+  pivot_wider(
+    names_from = quantile, 
+    values_from = estimate
+  )
+
+mvs <- mv %>% 
+  mutate(
+    decision = case_when(
+      conf.low < 0 & conf.high < 0 ~ "Negative",
+      conf.low > 0 & conf.high > 0 ~ "Positive",
+      !sig ~ "Not significant"
+    ) %>% 
+      factor(levels = c("Negative", "Not significant", "Positive"))
+  ) %>% 
+  summarise(p = n(), .by = c(y, decision)) %>% 
+  mutate(
+    p = p / sum(p), .by = y
+  ) %>% 
+  complete(y, decision, fill = list(p = 0)) %>% 
+  pivot_wider(names_from = decision, values_from = p) %>% 
+  left_join(mvs) %>% 
+  left_join(
+    summarise(mv, n = median(n), .by = y)
+  )
+
+mvs_all <- mv %>% 
+  mutate(
+    estimate = if_else(y == "negative_experiences", -1*estimate, estimate)
+  ) %>% 
+  reframe(
+    estimate = quantile(estimate, probs = c(.25, .5, .75)), 
+    quantile = c(.25, .5, .75),
+  ) %>% 
+  pivot_wider(
+    names_from = quantile, 
+    values_from = estimate
+  )
+
+mvs_all <- mv %>% 
+  mutate(
+    across(
+      c(estimate, conf.low, conf.high), 
+      ~if_else(y == "negative_experiences", -1*., .)
+    )
+  ) %>% 
+  mutate(
+    decision = case_when(
+      conf.low < 0 & conf.high < 0 ~ "Negative",
+      conf.low > 0 & conf.high > 0 ~ "Positive",
+      !sig ~ "Not significant"
+    ) %>% 
+      factor(levels = c("Negative", "Not significant", "Positive"))
+  ) %>% 
+  summarise(p = n(), .by = c(decision)) %>% 
+  mutate(
+    p = p / sum(p)
+  ) %>% 
+  complete(decision, fill = list(p = 0)) %>% 
+  pivot_wider(names_from = decision, values_from = p) %>% 
+  bind_cols(mvs_all) %>% 
+  bind_cols(
+    summarise(mv, n = median(n))
+  )
+mvs <- bind_rows(
+  mvs,
+  mutate(mvs_all, y = "Total")
+) %>% 
+  mutate(Outcome = sanitize_labels(y), N = n, .keep = "unused", .before = 1)
+rm(mvs_all)
+```
+
+---
+abstract: |
+  With the increasing global penetration of the internet, and technologies and platforms enabled by it, their potential effects on individuals' well-being remains hotly debated. On one hand, these technologies have enabled novel forms of commerce, education, and leisure; on the other, many are worried that their use might negatively affect individuals by, for example, displacing time spent on other healthy activities. Moreover, research findings on the effects of internet technologies on well-being have been mixed and, to date, inconclusive and of limited geographic and demographic scope. In the current work, we examined the extent to which having internet access, mobile internet access, or being an active internet user affected seven well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals living in `r length(unique(dat$country))` countries. We first tested the extent to which well-being varied as a function of internet connectivity. Then, to go beyond describing average associations, we examined the potential causal effects of internet connectivity on well-being with a multiverse analysis over XXXX plausible model and subgroup specifications. `r percent(mvs$Positive[5], .01)` of these specifications indicated that internet connectivity was associated with positive well-being, while only `r percent(mvs$Negative[5], .01)` indicated negative associations. These results indicate that internet access and active use are positive contributors to individuals' well-being.
+---
+
+The increasing adoption and use of internet-enabled technologies and platforms has spurred debate about their potential effects on people's psychological well-being and functioning. However, even after considerable scientific attention, an understanding of the associations between internet technology use and well-being remains elusive, and results of scientific studies on this topic have been mixed. 
+
+## Current study
+
+Our overarching aim was to estimate how and to what extent internet access, mobile internet access, and internet use might affect psychological well-being using cross-sectional samples of `r number2(nrow(dat))` individuals from `r length(unique(dat$country))` countries between 2006 and 2021. We studied seven indicators of well-being; life satisfaction, the extent to which individuals experienced daily negative and positive experiences; social well-being; physical well-being, community well-being, and experiences of purpose. We predicted these well-being indicators from whether individuals had any access to the internet, smartphone access, or whether they were active internet users.
+
+We first asked what was the average difference, among the whole sample, in well-being between those individuals who had access to or used the internet, and those who did not. That is, our first research question addressed the basic association between internet and well-being. 
+
+Second, our aim was to identify the unique contributions that internet access and use might have on well-being, and whether those might vary between demographics or over time. To this end, we used a set of meaningful covariates to adjust our models with.
+
+# Methods
+
+We analysed data from the Gallup World Poll [@gallupWorldPollMethodology2022]. Gallup World Poll (GWP) is a nationally representative (of each country's civilian, non-institutionalized, adult [15+] population) continuous annual survey of approximately 1,000 individuals from each of 164 countries, conducted from 2005 to 2022. Gallup conducts the surveys through one-hour interviews either face-to-face or via telephone, with questionnaires that are translated to the major conversational language of each country. For the GWP methodological details, see @gallupWorldPollMethodology2022. We used data from 2006 to 2021, because in 2005 the internet questions were answered by fewer than a quarter of respondents, and the 2022 data only contained five thousand responses from three countries. We refer to the 2006-2021 dataset below. The total sample size for this analysis was `r number2(nrow(dat))`, with `r length(unique(dat$country))` countries. The sample was ZZZ female, and the interquartile range of age was ZZZ.
+
+## Data and material availability
+
+We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at [DOI]. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the above exclusions).
+
+## Internet access and use
+
+The key variables that we considered as predictors measured the respondents' access and use of the internet. GWP has surveyed these with four items with varying coverage over time. First, GWP measured internet access with *"Does your home have access to the internet?"* from 2006 to 2015, where the mean percentage of non-missing values was `r percent(mean(x_sum$internet_home[1:10]), .1)`. From 2016 to 2021, a similar question measured overall internet access with *"Do you have access to the internet in any way, whether on a mobile phone, a computer, or some other device?"* (mean valid responses: `r percent(mean(x_sum$internet_access[11:16]), .1)`). Because these two questions were so similar, and to extend the range of data coverage, we merged these two to one variable indicating internet access.
+
+Second, GWP asked about mobile internet access with *"Can your mobile phone be used to access the Internet?"* from 2017 to 2021 (mean valid responses: `r percent(mean(x_sum$internet_phone[12:16]), .1)`). Third, GWP measured internet use with *"Have you used the internet in the past seven days, whether on a mobile phone, a computer, or some other device?"* from 2015 to 2021 (mean valid responses: `r percent(mean(x_sum$internet_past7days[11:16]), .1)`). All of these items had binary "Yes"/"No" response options, and respondents were given the option to decline an answer or report that they didn't know. We coded the latter two as missing values.
+
+## Well-being outcomes
+
+We focused on seven measures of well-being, broadly defined, in the Gallup World Poll: Life satisfaction, negative and positive experiences, and social life satisfaction. In addition to these four outcomes, which were included in the GWP from 2006 to 2021, we studied three indicators from the Gallup-Sharecare Global Well-being Index™ (GWPI), which is a "barometer of individuals perceptions of their own well-being" [@gallupWorldPollMethodology2022]. 
+
+Life satisfaction was measured with a single item: *"Please imagine a ladder, with steps numbered from 0 at the bottom to 10 at the top. The top of the ladder represents the best possible life for you and the bottom of the ladder represents the worst possible life for you. On which step of the ladder would you say you personally feel you stand at this time?"*, and respondents chose a number from 0 to 10. We rescaled this item to range from 0 to 1.
+
+Negative and positive experiences are both measured through a set of five Yes/No items. For negative experiences, respondents answered the prompts *"Did you experience the following feelings during a lot of the day yesterday? How about physical pain / worry / sadness / stress / anger?"*. For positive experiences, the items were *"Did you feel well-rested yesterday?"*; *"Were you treated with respect all day yesterday?"*; *"Did you smile or laugh a lot yesterday?"*; *"Did you learn or do something interesting yesterday?*"; and *"Did you experience the following feelings during a lot of the day yesterday? How about enjoyment?"*.
+
+In addition, we included two variables intended to measure individuals' "social support structure and opportunities to make friends" (*"Someone in your life always encourages you to be healthy"* and *"Your friends and family give you positive energy every day"*). We included these items as a proxy for social well-being. While we recognize their potentially limited validity, we thought that, from the variables available, they best approximated an absence of loneliness, an important and much-studied aspect of well-being in connection to digital technologies.
+
+In 2013 through 2015, the GWP database also included a (Gallup-Sharecare) Global Well-being Index™ (GWPI), which measured (among others) experiences of purpose (*"liking what one does each day and being motivated to achieve one’s goals"*); community well-being (*"liking where one lives, feeling safe and having pride in one’s community"*); and physical well-being (*"having good health and enough energy to get things done daily"*). Experiences of purpose were measured with prompts *"You like what you do every day"* and *"You learn or do something interesting every day"*. Community well-being was prompted with *"The city or area where you live is a perfect place for you"* and *"In the last 12 months, you have received recognition for helping to improve the city or area where you live"*. Physical well-being had prompts *"In the last seven days, you have felt active and productive every day"* and *"Your physical health is near-perfect"*. All GWPI items included the prompt *"Thinking about your life in general, please rate your level of agreement with each of the following using a five-point scale, where 5 means you STRONGLY AGREE and 1 means you STRONGLY DISAGREE. You may choose any of the numbers 1, 2, 3, 4, or 5."* However, because the GWPI was measured only between 2013 and 2015, we present those results separately in the appendix. 
+
+While these scales are not psychometrically validated, Gallup cites prominent scientists as having helped with their development (@gallupWorldPollMethodology2022, p. 5). While this statement doesn't make up for these scales' lack of validation, we believe that the extensive scope of the dataset, across both time and countries, makes them uniquely valuable objects of study.
+
+## Covariates
+
+In addressing our second research question, our aim was to approach the independent contributions of internet access and use on well-being. To that end, we adjusted for plausible (and available) covariates in our models that might otherwise mask or bias any independent contributions of internet access on well-being, or create spurious associations. We chose six variables to represent such potentially confounding factors: The respondent's income, educational, work, and relationship statuses, their ability to meet basic needs for food and shelter, and whether or not they reported having health problems.
+
+The GWP reports respondents' monthly household income in their local currencies. GWP used hot deck imputation for individuals who reported an income range (~15%) or who did not provide responses (~15%). GWP then converted those values to international dollars using the World Bank's purchasing power parity conversion factor, with the intent of making income estimates comparable across all respondents and countries. In our analyses, we log-transformed income. The GWP coded each respondent's educational status to one of three categories: Elementary education or less (up to eight years of education), some secondary education (nine to 15 years), and tertiary (education beyond high school). We used this variable as a continuous predictor. Since 2009, GWP measured work status with five levels related to the quantity of work, but we recoded this as a binary employed vs. not variable. Relationship status was measured with a question about marital status with six response options. We recoded this to a binary in relationship vs. not variable. Basic need satisfaction was measured with two items querying whether the respondent had had difficulties in providing for their food and shelter in the past 12 months. Respondents also answered "Do you have any health problems that prevent you from doing any of the things people your age normally can do?" with a binary yes/no response format.
+
+In addition to these covariates, we identified meaningful subgroups in the data. First, previous research has highlighted important differences between age groups and sexes in their levels of well-being and use of internet technologies, and associations between the two. We therefore conducted our analyses separately for each sex and age group. However, to reduce the computational complexity of our analyses, and because there are no strong a priori reasons to assume large differences between adjacent ages, we split the continuous age variable into six categories (15 to 24, 25 to 34, 35 to 44, 45 to 54, 55 to 64, and 65 +). Second, internet platforms and technologies are not static but instead technologies and media that are continuously developed and whose affordances changes over time. Because this has led to worries that their effects on individuals' well-being might change over time [@vuorreThereNoEvidence2021], we analysed the data separately for each year. 
+
+## Data analysis
+
+Our general data-analytic approach was a regression model predicting one outcome (e.g. life satisfaction) from an intercept and one predictor (e.g. internet access). Where the outcome consisted of multiple items, we took the mean. In addition, we within-country centered all our predictors, so as to not include between-country differences in the coefficients, which consequently indicated contrasts between individuals who (e.g.) had access to the internet to those who didn't, within a given country. In addition, because the data were nested within countries, we specified a multilevel model where the intercept and coefficient of the internet predictor varied randomly over countries. We addressed our first research question about average contrasts with a multilevel model of well-being outcome $y$ for observation $i$ and country $j$ on internet predictor $x$, specified as
+
+\begin{align*} 
+y_{ij} &\sim \text{Normal}(\mu_{ij}, \sigma^{2}), \\
+\mu_{ij} &= \alpha_{0} + \beta_{0j} +
+  (\alpha_{1} + \beta_{1j})(x_{ij} - \bar{x}_{.j}), \\
+\begin{bmatrix} 
+\beta_0 \\ \beta_1 
+\end{bmatrix} 
+& \sim\text{Normal}\left(
+  \begin{bmatrix}
+  0 \\ 0 
+  \end{bmatrix}, 
+  \begin{bmatrix} 
+  \sigma_{\beta_0}^2 & \\ \sigma_{\beta_0\beta_1} & \sigma_{\beta_1}^2 
+  \end{bmatrix} 
+\right).
+\end{align*}
+
+In this manner, $\alpha_1$ is the difference in well-being indicator $y$ between individuals who had access to the internet and those who didn't, for the average country. For our second, primary, research question we then conducted a multiverse analysis over different covariate permutations on this base model and subgroups in the data. We analysed all the possible ways in which the covariates could be included in this model as fixed effects (including no covariates), leading to XXX different covariate specifications. In addition to model specifications and subgroups, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights. Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, years, covariate combinations, and whether model weights were included or not, leading to `r n_specs_all` specifications. (This number was smaller than the theoretical number of specifications, because not all combinations were possible (e.g. mobile internet access did not exist before 2017)). 
+
+Because an additional concern with this analytic strategy was a diminishing sample size per analysis (reported below), we conducted a second multiverse analysis as a robustness check. That analysis was otherwise similar to our main multiverse analysis, but instead of subgrouping data by year we used year and its interaction with countries as random effect clusters in the multilevel model. In addition to examining the robustness of our results, this additional analysis was motivated by our prior study, where differences in technology-use and well-being associations over time were very small [@vuorreThereNoEvidence2021]. We report this robustness analysis in Appendix B. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses and the lme4 package for estimating the multilevel models [@batesFittingLinearMixedEffects2015].
+
+# Results
+
+```{r}
+path <- "tmp/specs-lmer-total.rds"
+if (!file.exists(path)) {
+  
+  library(furrr)
+  plan(multisession, workers = 8)
+  
+  # Pass these global objects to `future_pmap()`
+  opts <- furrr_options(
+    globals = list(dat2 = dat2, No = No),
+    packages = c("lme4", "purrr", "dplyr", "broom.mixed")
+  )
+  
+  specs_avg <- expand_grid(
+    y = c(
+      "life_satisfaction",
+      "negative_experiences",
+      "positive_experiences",
+      "social_life",
+      "gwb_purpose", "gwb_social", "gwb_physical"
+    ),
+    x = c(
+      "internet_access",
+      "internet_past7days",
+      "internet_phone"
+    )
+  ) %>% 
+    mutate(
+      model = "No",
+      formula = str_glue("{y} ~ {x} + ({x} | country)")
+    ) %>% 
+    mutate(
+      out = future_pmap(
+        list(model, formula),
+        ~do.call(
+          what = ..1, 
+          args = list(
+            formula = ..2, 
+            data = dat2
+          )
+        ),
+        .options = opts
+      )
+    ) %>% 
+    ungroup() %>% 
+    unnest(out)
+
+  specs_avg <- specs_avg %>% 
+    filter(term == x) %>% 
+    select(-c(effect, group, term, model, formula))
+  
+  saveRDS(specs_avg, path)
+} else {specs_avg <- readRDS(path)}
+
+# Median association (with reversed negative experiences)
+tmp <- specs_avg %>% 
+  mutate(estimate = if_else(y == "negative_experiences", -1*estimate, estimate)) %>% 
+  summarise(across(c(estimate, std.error), median))
+```
+
+Our first research question concerned the average differences in well-being between individuals who had access to (mobile) internet or had used the internet in the past seven days, and those who didn't. We display the results of this analysis in Figure \@ref(fig:fig-rq1). The associations between (mobile) internet access and use and well-being were consistently positive. For the average country, individuals who had access to the internet reported approximately 0.08 units greater life satisfaction, positive experiences, and social life satisfaction, and 0.06 units lower negative experiences than individuals who did not have access. Results across the other two internet access and use predictors were of the same sign and comparable magnitude. To put these magnitudes to context, the models' standard deviations in well-being across countries ranged from XXX to XXX, representing the natural variation in well-being between countries. The observed differences in well-being between individuals who had access to or used the internet were of comparable magnitude. This suggests that the well-being differences, although they don't indicate causality and were numerically small, were of meaningful magnitude.
+
+Moreover, Figure \@ref(fig:fig-rq1) shows individual countries' observed difference scores as small points; they were very consistently in the same direction as the average contrasts, indicating that this difference held similarly across most countries. These results showed uniformly across the four well-being outcomes that individuals who had access to, or actively used the internet reported meaningfully greater well-being than those who did not.
+
+```{r}
+#| label: fig-rq1
+#| include: true
+#| fig.height: 5.4
+#| fig.cap: Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\% confidence interval.
+
+tmp1 <- dat %>% 
+  pivot_longer(starts_with("internet")) %>% 
+  drop_na(value) %>%
+  group_by(country, name, value) %>% 
+  summarise(
+    across(
+      c(life_satisfaction:social_life), 
+      ~mean(., na.rm = TRUE)
+    ),
+  ) %>% 
+  ungroup() %>% 
+  pivot_longer(contains("_"), names_to = "outcome", values_to = "y") %>% 
+  filter(!(name == "internet_phone" & str_detect(outcome, "gwb_"))) %>% 
+  pivot_wider(names_from = value, values_from = y) %>% 
+  mutate(z = Yes - No) %>% 
+  pivot_longer(c(No, Yes, z), names_to = "x")
+
+tmp2 <- tmp1 %>% 
+  group_by(name, outcome, x) %>% 
+  summarise(m = mean_cl_boot(value, conf.int = 0.95)) %>% 
+  ungroup() %>% 
+  unnest(m) %>% 
+  mutate(sig = sign(ymin) == sign(ymax)) %>% 
+  mutate(
+    decision = case_when(
+      ymin < 0 & ymax < 0 ~ "Negative",
+      ymin > 0 & ymax > 0 ~ "Positive",
+      !sig ~ "Not significant"
+    ) %>% 
+      factor(levels = c("Negative", "Not significant", "Positive")) %>% 
+      fct_drop()
+  ) 
+
+tmp1 %>% 
+  ggplot(aes(x, value)) +
+  scale_color_brewer(
+    "Difference",
+    palette = "Set1"
+  ) +
+  scale_y_continuous(
+    "Well-being mean",
+    breaks = extended_breaks(7),
+    expand = expansion(.1)
+  ) +
+  scale_x_discrete(
+    "Internet",
+    expand = expansion(0.4),
+    labels = ~str_replace(., "z", "Y-N")
+  ) +
+  geom_hline(yintercept = 0, linewidth = .1) +
+  geom_line(
+    data = . %>% filter(x != "z"),
+    aes(group = country),
+    linewidth = .1, alpha = .5, col = "gray70",
+    position = position_quasirandom(width = .45)
+  ) +
+  geom_point(
+    alpha = .55, size = .8, shape = 1, stroke = .33, 
+    col = "gray70", fill = "white",
+    position = position_quasirandom(width = .45)
+  ) +
+  geom_pointrange(
+    data = tmp2 %>% filter(x %in% c("No", "Yes")),
+    aes(y = y, ymin = ymin, ymax = ymax),
+    size = 0.5, fatten = 1.8
+  ) +
+  geom_pointrange(
+    data = tmp2 %>% filter(!(x %in% c("No", "Yes"))),
+    aes(y = y, ymin = ymin, ymax = ymax, color = decision),
+    size = 0.5, fatten = 1.5
+  ) +
+  geom_line(
+    data = tmp2 %>% filter(x %in% c("No", "Yes")),
+    aes(y = y),
+    linewidth = .33,
+    group = 1,
+    show.legend = FALSE
+  ) +
+  geom_label(
+    data = specs_avg %>% 
+      filter(!str_detect(y, "gwb_")) %>% 
+      mutate(
+        across(c(where(is.numeric), -n), ~number(., .001)),
+        n = number2(n),
+        name = x, x = "No", outcome = y
+        ),
+    aes(
+      label = str_glue("b = {estimate}\n[{conf.low}, {conf.high}]")
+    ),
+    x = -Inf, y = -Inf, 
+    size = 2.7, hjust = 0, vjust = 0, lineheight = 1, fill = NA,
+    label.size = 0, label.padding = unit(0.5, "line")
+  ) +
+  facet_grid(
+    name ~ outcome, 
+    labeller = as_labeller(~sanitize_labels(.))
+  ) +
+  theme(
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+tmp1 <- dat %>% 
+  pivot_longer(starts_with("internet")) %>% 
+  drop_na(value) %>%
+  group_by(country, year, name, value) %>% 
+  summarise(
+    across(
+      c(life_satisfaction:social_life), 
+      ~mean(., na.rm = TRUE)
+    ),
+  ) %>% 
+  ungroup() %>% 
+  pivot_longer(contains("_"), names_to = "outcome", values_to = "y") %>% 
+  filter(!(name == "internet_phone" & str_detect(outcome, "gwb_"))) %>% 
+  pivot_wider(names_from = value, values_from = y) %>% 
+  mutate(z = Yes - No) %>% 
+  pivot_longer(c(No, Yes, z), names_to = "x")
+  
+tmp2 <- tmp1 %>% 
+  group_by(year, name, outcome, x) %>% 
+  summarise(m = mean_cl_boot(value, conf.int = 0.95)) %>% 
+  ungroup() %>% 
+  unnest(m) %>% 
+  mutate(sig = sign(ymin) == sign(ymax)) %>% 
+  mutate(
+    decision = case_when(
+      ymin < 0 & ymax < 0 ~ "Negative",
+      ymin > 0 & ymax > 0 ~ "Positive",
+      !sig ~ "Not significant"
+    ) %>% 
+      factor(levels = c("Negative", "Not significant", "Positive")) %>% 
+      fct_drop()
+  )
+tmp2 %>% 
+  filter(x == "z") %>% 
+  ggplot(aes(year, y)) +
+  coord_cartesian(ylim = c(-0.2, 0.25)) +
+  geom_hline(yintercept = 0, linewidth = .1) +
+  geom_line(
+    data = tmp1 %>% filter(x == "z"),
+    aes(y = value, group = country),
+    alpha = .1, color = "grey60"
+  ) +
+  geom_ribbon(
+    aes(ymin = ymin, ymax = ymax),
+    alpha = .33
+  ) +
+  geom_line() +
+  facet_grid(
+    name ~ outcome, 
+    labeller = as_labeller(~sanitize_labels(.))
+  )
+```
+
+```{r}
+#| label: tbl-multiverse
+#| include: true
+mvs2 <- mvs %>% 
+  mutate(
+    N = number2(N, 1),
+    across(c(Negative, `Not significant`, Positive), ~percent(., .01)),
+    across(c(`0.25`, `0.5`, `0.75`), ~number(., .01))
+  ) %>% 
+  mutate(
+    Median = `0.5`,
+    IQR = str_glue("[{`0.25`}, {`0.75`}]"),
+    .keep = "unused",
+    .after = 2
+  )
+mvs2 %>%   
+  apa_table(
+    caption = "Summary of multiverse analysis of associations between internet access (or use) and well-being.", 
+    note = 'N is the median sample size across specifications. "Total" indicates quantities across well-being outcomes (we reversed associations with negative experiences for this aggregate number).', 
+    col_spanners = list(
+      "Association magnitude" = c(3, 4),
+      "Proportions of significant associations" = c(5, 7)
+    ), 
+    placement = "ht"
+  )
+```
+
+However, although the estimates in Figure \@ref(fig:fig-rq1) were surprisingly uniform across outcomes and predictors, they did not yet address our second, main research question: The extent to which internet access and use might independently contribute to individuals' well-being, and whether the associations might be unique to specific subgroups of individuals. To best answer this question, while at the same time appreciate the theoretical uncertainty in how, where, or for whom to study this association, we next turned to our main multiverse analysis. In the analysis presented here, we examined the association between well-being and internet access or use over `r number2(n_specs_main)` model specifications. In appendix A, we present an additional `r number2(n_specs_gwb)` models examining the GWBI outcomes in 2013 to 2015.
+
+We summarize the results of this multiverse analysis in Table \@ref(tab:tbl-multiverse). First, for life satisfaction, the median sample size across specifications was `r mvs$N[[1]]`. Answering 'Yes' to an internet access or use question was associated with a median `r mvs$Median[[1]]` unit increase in life satisfaction. The central 50% of the distribution of associations was within the `r mvs$IQR[[1]]` interval. The association between internet access or use and life satisfaction was positive in `r mvs$Positive[[1]]` of model specifications. Numerical results for the other three well-being outcomes were of similar magnitude, and the total proportion of specifications that resulted in negative associations was only `r mvs$Negative[[5]]`.
+
+Figure \@ref(fig:fig-multiverse) shows that across all model specifications, the multilevel model's estimated association between internet access and use, for the average country, was very consistently positive. Each vertical slice of figure \@ref(fig:fig-multiverse) identifies a model specification, indexed on the x-axis. The resulting estimated association is displayed in panel A. The model's specification is the combination of covariates and grouping variables enumerated in panel B. For example, one point could represent the association between internet access (X = Internet access in panel B) for males aged 65 or over (Age), with a model that included only an intercept (Covariates = 1) as additional covariates, in the year 2019, for a model estimated without weights (No weights).
+
+```{r}
+#| include: true
+#| label: fig-multiverse
+#| out.width: "\\textwidth"
+#| fig.env: "figure*"
+#| fig.height: 7.8
+#| fig.width: 9
+#| fig.cap: Multiverse analysis results of associations between three internet use predictors and four well-being outcomes. A. Estimated associations, in order of increasing magnitude, shown separately for each of the four main well-being outcomes. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. B. A dashboard of model specifications. Each point in the small panels indicates the value of the grouping variable or covariate specification for the model indicated on the x-axis.
+p1 <- mv %>% 
+  ggplot(aes(i, estimate, col = decision)) +
+  scale_color_manual(values = c("firebrick2", "grey70", "dodgerblue2")) +
+  scale_y_continuous(position = "right",
+    "Estimated association (95%CI)",
+    breaks = extended_breaks(7)
+  ) +
+  scale_x_continuous(
+    "Analysis specification (in order of association magnitude)",
+    breaks = extended_breaks(5),
+    expand = expansion(.015)
+  ) +
+  geom_hline(yintercept = 0, linewidth = .1) +
+  geom_point(size = .25) +
+  geom_linerange(
+    aes(ymin = conf.low, ymax = conf.high),
+    linewidth = .2, alpha = .2
+  ) +
+  geom_ysidedensity(
+    aes(x = after_stat(ndensity)), 
+    col = "grey20", fill = "grey60", alpha = .4, n = 3001
+  ) +
+  geom_ysidepoint(
+    data = mv %>% 
+      group_by(y) %>% 
+      summarise(median = median(estimate)) %>% 
+      # Just for coloring the dot
+      mutate(
+        decision = cut(
+          median,
+          breaks = c(-1, -.0001, .0001, 1),
+          labels = c("Negative", "Not significant", "Positive")
+        )
+      ),
+    aes(y = median, x = 0),
+    size = 2, position = position_nudge(x = .025)
+  ) +
+  scale_ysidex_continuous(expand = expansion(c(0, .2))) +
+  facet_wrap(
+    "y", 
+    scales = "free_x", 
+    nrow = 1, 
+    drop = TRUE,
+    labeller = as_labeller(sanitize_labels)
+    ) +
+  theme(
+    axis.title.x = element_blank(),
+    legend.position = "none",
+    ggside.panel.scale = 0.1,
+    ggside.panel.spacing.x = unit(0, "pt"),
+    ggside.axis.text = element_blank(),
+    ggside.axis.ticks = element_blank()
+  )
+
+p2 <- mv %>% 
+  mutate(
+    weights = factor(
+      weights, 
+      levels = c("No", "Yes"), 
+      labels = c("No weights", "Weights"))
+  ) %>% 
+  pivot_longer(
+    c(year, age, sex, x, covariate, weights), 
+    values_transform = as.character
+  ) %>%
+  mutate(
+    name = factor(
+      name, 
+      levels = c("x", "age", "sex", "covariate", "year", "weights"),
+      labels = c("X", "Age", " ", "Covariates", "Year", "  ")
+    ),
+    value = fct_relevel(value, cs),
+    value = fct_recode(value, `No covariates` = "1")
+  ) %>%
+  ggplot(aes(i, value, col = decision)) +
+  scale_color_manual(values = c("firebrick2", "grey70", "dodgerblue2")) +
+  scale_y_discrete(
+    position = "right",
+    labels = ~sanitize_labels(., FALSE)
+  ) +
+  scale_x_continuous(
+    "Analysis specification (ordered by increasing magnitude of association)",
+    breaks = extended_breaks(5),
+    expand = expansion(.01)
+  ) +
+  geom_point(
+    shape = 20, 
+    size = .1, 
+    position = position_quasirandom(groupOnX = FALSE, width = .2)
+  ) +
+  facet_grid(
+    cols = vars(y),
+    rows = vars(name), 
+    scales = "free_y", 
+    space = "free_y", 
+    switch = "y", 
+    drop = TRUE,
+    labeller = as_labeller(sanitize_labels)
+  ) +
+  theme(
+    axis.text.y = element_text(size = rel(0.6)),
+    axis.title.y = element_blank(),
+    # axis.text.x = element_blank(),
+    legend.position = "none"
+  )
+
+((p1 / p2) +
+  plot_layout(heights = c(3.2, 6.8))) +
+  plot_annotation(tag_levels = "A")
+```
+
+```{r}
+#| include: true
+#| label: fig-multiverse-zoom
+#| out.width: "\\textwidth"
+#| fig.env: "figure*"
+#| fig.cap: Median associations between the internet predictors and well-being outcomes by sex and age, ordered by covariate specification. The specifications are ordered as in Figure 2; where greater numbers indicate more covariates in the model.
+p1 <- specs %>% 
+  filter(term == x) %>% 
+  reframe(
+    q = c(.1, .5, .9),
+    value = quantile(estimate, probs = c(.1, .5, .9)),
+    .by = c(covariate, age, sex, x, y)
+  ) %>% 
+  pivot_wider(names_from = q) %>% 
+  mutate(
+    covariate = fct_relevel(covariate, unique(specs$covariate)),
+    i = as.numeric(covariate)
+  ) %>%
+  ggplot(aes(i, `0.5`)) +
+  geom_hline(yintercept = 0, size = .1) +
+  scale_color_viridis_d(
+    "Age"
+  ) +
+  scale_y_continuous(
+    "Median association"
+  ) +
+  scale_x_continuous(
+    "Covariate specification"
+  ) +
+  geom_line(aes(group = age, col = age)) +
+  facet_nested(
+    x + sex ~ y,
+    labeller = as_labeller(sanitize_labels)
+  )
+
+p1
+```
+
+```{r}
+specs %>% 
+  filter(term == x) %>% 
+  reframe(
+    q = c(.1, .5, .9),
+    value = quantile(estimate, probs = c(.1, .5, .9)),
+    .by = c(covariate, age, x, y)
+  ) %>% 
+  pivot_wider(names_from = q) %>% 
+  mutate(
+    covariate = fct_relevel(covariate, unique(specs$covariate)),
+    covariate = fct_recode(covariate, `No covariates` = "1")
+  ) %>%
+  ggplot(aes(`0.5`, covariate, col = age)) +
+  geom_vline(xintercept = 0, size = .1) +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_continuous(
+    "Estimated association"
+  ) +
+  ggstance::geom_pointrangeh(
+    aes(xmin = `0.1`, xmax = `0.9`),
+    size = .1, fatten = 0.25,
+    position = position_dodge(width = 1)
+  ) +
+  facet_nested(
+    x ~ y,
+    labeller = as_labeller(sanitize_labels)
+  )
+```
+
+A visual examination of Figure \@ref(fig:fig-multiverse) did not suggest any strong patterns in subgroups or covariates such that there would have been an especially strong relation for a specific subgroup or covariate inclusion. If that were the case, we should have observed a clustering of points in the dashboard along a single covariate or grouping factor indicating a distinctly strong relation among one or more of the outcomes, which we did not. However, the large number of specifications in this figure might make it difficult to tease apart factors that might have led to meaningful variation among the estimated associations. To help see the variance among results with respect to covariate specification, Figure XYZ shows the median associations between each outcome and predictor, separately for each covariate specification. From this figure, we observe that while generally increasing the number and complexity of covariates in the model did somewhat decrease the magnitudes of the estimated associations, they remained positive and significantly so for most cases. This observations shows that even after adjusting for all possible combinations of covariates, the relationships between internet access or use and well-being remained positive. In turn, this suggests that the contributions of internet access and use on well-being were independent of the covariates we selected for, and thus might indicate causal relations.
+
+```{r}
+#| eval: false
+library(ggstance)
+library(ggh4x)
+specs %>% 
+  drop_na(age, sex) %>% 
+  filter(
+    covariate %in% c("1", "healthproblems + income"),
+    !str_detect(y, "gwb"),
+    year %% 2 == 1,
+    year >= 2015
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    sig = sign(conf.low) == sign(conf.high),
+    covariate = factor(
+      covariate, labels = c("No covariates", "Income and health problems")
+    ),
+    color = str_glue("{sex}\n{covariate}")
+  ) %>% 
+  arrange(sex, covariate) %>% 
+  mutate(color = fct_inorder(color)) %>% 
+  ggplot(aes(year, estimate, col = color)) +
+  scale_color_manual(
+    "Model covariates",
+    values = c("firebrick1", "firebrick4", "dodgerblue1", "dodgerblue4")
+  ) +
+  scale_shape_manual(values = c(21, 19)) +
+  scale_y_continuous(
+    "Estimated association (95%CI)",
+    labels = ~percent(., 1)
+  ) +
+  scale_x_continuous(
+    "Year",
+    breaks = c(2015, 2017, 2019, 2021),
+    labels = ~str_glue("'{str_sub(., 3, 4)}")
+  ) +
+  geom_hline(yintercept = 0, linewidth = .1) +
+  geom_pointrange(
+    aes(ymin = conf.low, ymax = conf.high, shape = sig),
+    position = position_dodge2(1),
+    fatten = 2.5, fill = "white", stroke = .8
+  ) +
+  guides(shape = "none") +
+  facet_nested(
+    age ~ y + x, scales = "free_x",
+    labeller = as_labeller(sanitize_labels)
+  ) +
+  theme(
+    legend.position = "bottom", 
+    legend.title = element_blank()
+  )
+```
+
+We then focused on another aspect of potential variation among the associations between internet access or use and well-being. Figure XYZ shows the median associations for each demographic 
+
+# Discussion
+
+The debate over internet platforms' and technologies' effects on individuals' psychological well-being remains a central topic because of their potentially global consequences. While past results on this topic have been mixed, the overwhelming majority of studies have examined convenience samples from the global north, thereby ignoring the fact that the penetration of the internet has been a global phenomenon. In this study, we examined associations between internet use and access, and a broad variety of well-being indicators in a representative sample of `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries within an age range that spanned from late adolescence to older adults. We found that on average across countries and demographics, individuals who had internet access, mobile internet access, or actively used the internet reported greater levels of life satisfaction, positive experiences, and social well-being, and lower levels of negative experiences.
+
+The main thrust of our analysis was to examine to what extent this positive association between internet and well-being was sensitive to different demographic groups, time periods, and modelling decisions. Furthermore, we attempted to estimate the unique contributions of internet on well-being by examining this association across `r length(unique(specs$covariate))` different permutations of sets of plausible covariates that might otherwise create or mask associations. Across `r number2(nrow(filter(specs, term == x)))` of such model specifications, `r mvs$Positive[5]` of the associations were significantly positive, and only `r mvs$Negative[5]` were negative. We thus conclude that the proliferation of (mobile) internet access and increasing engagement with the internet has been a net benefit to the well-being of individuals around the world.
+
+Nevertheless, our conclusion is qualified by a number of factors. First, we compared individuals to each other. There are likely myriad other features about the human condition that are associated with both uptake of internet technologies and well-being in such a manner that they might cause positive associations to be observed. While we attempted to adjust for such features by including various covariates in our models, the data and theory to guide model selection were both limited. 
+
+Second, while between-person data such as we studied can inform inferences about average causal effects, longitudinal studies that track individuals and their internet use over time would be more informative in understanding the contexts of how and why an individual is affected by the internet [@rohrerTheseAreNot2021]. 
+
+Third, while the constructs that we studied represent the general gamut of well-being outcomes that are typically studied in connection to digital media and technology, they do not capture everything, nor are they standard and methodically validated measures otherwise found in the psychological literature. That is, the GWP data that we used represent a uniquely valuable resource in terms of its scope both over time and space. But the measurement quality of its items and scales might not be sufficient to capture the targeted constructs in the detailed manner that we would hope for. It is therefore possible that there are other features of well-being that are differently affected by internet technologies, and that our estimates might be noisier than would be found using psychometrically validated instruments.
+
+Fourth, the validity of self-reported measures of technology engagement is found lacking, as self-reported quantities of use correlate only modestly with actual use, as measured for example by apps installed on smartphones. In our study, we used reports of whether an individual has access to or has used the internet in the past week. Nevertheless, we believe it is more difficult to be mistaken in answering those questions than it would be if answering questions about e.g. average hours used in the past year.
+
+To overcome these limitations, we think the best way forward for this field is the expend more resources on collecting larger and more representative longitudinal datasets that include validated measurements of the constructs that researchers care about. In addition, these datasets should include accurate data on individuals' engagement with the internet in lieu of self-reports. Fortunately, both of these data are already collected; large cohort-based surveys in many countries already track individuals' psychological states over time, and internet platforms are infamous for collecting detailed data on their users' behaviors. A significant but potentially fruitful challenge then would be to marry those two streams of data for a more detailed understanding of internet technologies in individuals' lives.
+
+
+
+# Author contributions
+
+Conceptualization: MV & AKP; Data curation: MV; Formal Analysis: MV; Funding acquisition: AKP; Investigation: MV & AKP; Methodology: MV & AKP; Project administration MV & AKP; Resources: AKP; Software: MV; Supervision: AKP; Visualization: MV & AKP; Writing – original draft: MV & AKP; Writing – review & editing: MV & AKP.
 
 # References
 
@@ -68,20 +1236,169 @@ R [@rcoreteamLanguageEnvironmentStatistical2022]
 :::
 
 
-<!-- Create an appendix with new page, table, and figure numbers. -->
-
 \clearpage
 \onecolumn
 
-# Supplementary online material to Title (Authors)
+# Supplementary online analyses to *Internet and well-being* (Vuorre & Przybylski, 2022)
 
 <!-- Prepend table & figure numbers with S and reset counters -->
+
 \setcounter{page}{1}
 \setcounter{table}{0}
 \setcounter{figure}{0}
 \renewcommand{\thetable}{S\arabic{table}}
 \renewcommand{\thefigure}{S\arabic{figure}}
 
-```{r include-only-for-pdf}
-#| include: !expr knitr::is_latex_output()
+Table \@ref(tab:tbl-correlation-matrix) shows the pearson correlations between all variables, across demographics, time and space.
+
+```{r}
+#| label: tbl-correlation-matrix
+#| include: true
+x <- dat %>% 
+  # filter(year > 2013) %>% 
+  select(
+    starts_with("internet"),
+    income, healthproblems, relationship, 
+    laworder, foodshelter,
+    life_satisfaction, negative_experiences, positive_experiences, social_life,
+    starts_with("gwb_")
+  ) %>% 
+  mutate(across(where(is.factor), ~as.numeric(.)-1)) %>% 
+  correlate()
+y <- x %>% 
+  # shave() %>% 
+  fashion(na_print = " ") %>% 
+  as_tibble() %>% 
+  mutate(term = str_glue("{term} ({1:nrow(x)})")) %>% 
+  mutate(term = sanitize_labels(term, FALSE))
+  names(y) <- c(" ", 1:(ncol(y)-1))
+  y %>%   
+    apa_table(
+      font_size = "scriptsize",
+      placement = "h",
+      caption = "Pearson correlations between key variables.",
+      note = "We used all pairwise-complete observations."
+    )
 ```
+
+```{r}
+#| label: fig-summary
+#| include: true
+#| fig.height: 6.5
+#| fig.cap: Key variables' averages and availability over time. A. Internet access and use variables. B. Covariates, excluding income because it is on a different scale. C. Well-being outcomes, excluding the GWB indices, because they were only collected in 2013 to 2015.
+
+# Figure
+tmp <- dat %>% 
+  select(
+    year, starts_with("internet"),
+    life_satisfaction, negative_experiences, 
+    positive_experiences, social_life, 
+    healthproblems, laworder, relationship
+  ) %>% 
+  mutate(across(c(where(is.factor)), ~as.numeric(.)-1)) %>% 
+  group_by(year) %>% 
+  summarise(
+    across(
+      everything(), 
+      list(valid = ~sum(!is.na(.)) / n(), mean = ~mean(., na.rm = TRUE)), 
+      .names = "{.col}.{.fn}"
+    )
+  ) %>% 
+  mutate(across(ends_with("valid"), ~if_else(. < 0.1, NaN, .))) %>% 
+  pivot_longer(-c(year)) %>% 
+  separate(name, c("variable", "measure"), sep = "\\.") %>% 
+  mutate(
+    group = case_when(
+      str_detect(variable, "internet") ~ "A",
+      variable %in% 
+        c("income", "healthproblems", "relationship", "laworder") ~ "B",
+      TRUE ~ "C"
+    )
+  )
+  
+
+p1 <- tmp %>% 
+  ggplot(aes(year, value, col = measure)) +
+  scale_color_brewer(
+    "Variable",
+    palette = "Dark2",
+    labels = ~factor(., levels = c("mean", "valid"), labels = c("Mean response", "Valid responses"))
+  ) +
+  scale_y_continuous(
+    limits = 0:1,
+    expand = expansion(c(0.03, 0.06)),
+    labels = ~percent(., 1)
+  ) +
+  scale_x_continuous(
+    "Year",
+    breaks = extended_breaks(5)
+  ) +
+  geom_line(linewidth = 0.8) +
+  # geom_point() +
+  facet_wrap(
+    "variable", 
+    scales = "free_x",
+    labeller = as_labeller(sanitize_labels),
+    nrow = 1
+  ) +
+  theme(
+    axis.title.y = element_blank(),
+    legend.position = "bottom", 
+    legend.title = element_blank()
+  )
+
+
+p2 <- (p1 %+% filter(p1$data, group == "A")) + 
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank()
+  )
+p3 <- (p1 %+% filter(p1$data, group == "B")) +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank()
+  )
+p4 <- (p1 %+% filter(p1$data, group == "C"))
+(p2 / p3 / p4) +
+  plot_annotation(tag_levels = "A")
+```
+
+```{r}
+#| label: fig-internet-by-sex
+#| include: true
+#| fig.height: 2.8
+#| fig.cap: Overall proportions of each country's internet users by sex. Points are individual countries. The regression line indicates that males overall were more likely to have internet access and used internet more frequently, but this divide was smaller for countries where overall adoption was greater.
+dat %>% 
+  group_by(country, year, sex) %>% 
+  summarise(across(starts_with("internet"), ~mean(as.numeric(.)-1, na.rm = TRUE))) %>% 
+  group_by(country, sex) %>% 
+  summarise(across(starts_with("internet"), ~mean(., na.rm = TRUE))) %>% 
+  ungroup() %>% 
+  mutate(m = rowMeans(select(., starts_with("internet")), na.rm = TRUE)) %>% 
+  arrange(m) %>% 
+  mutate(country = fct_inorder(country)) %>% 
+  select(-m) %>% 
+  pivot_longer(starts_with("internet")) %>%
+  pivot_wider(names_from = sex, values_from = value) %>% 
+  ggplot(aes(Male, Female)) +
+  scale_x_continuous(
+    "Males",
+    labels = ~percent(., 1)
+  ) +
+  scale_y_continuous(
+    "Females",
+    labels = ~percent(., 1)
+  ) +
+  geom_abline(linetype = "dotted") +
+  geom_point(shape = 1, col = "dodgerblue1") +
+  geom_smooth(method = "lm", se = FALSE, col = "dodgerblue4") +
+  facet_wrap(
+    "name",
+    nrow = 1,
+    labeller = as_labeller(sanitize_labels),
+  ) +
+  theme(
+    aspect.ratio = 1
+  )
+```
+
