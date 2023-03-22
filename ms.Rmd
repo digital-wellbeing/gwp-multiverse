@@ -28,7 +28,7 @@ figurelist: no
 tablelist: no
 footnotelist: no
 documentclass: apa7
-classoption: doc
+classoption: jou
 header-includes:
   - |
     \setlength{\parskip}{0pt}
@@ -36,7 +36,7 @@ header-includes:
 output: 
   papaja::apa6_pdf:
     number_sections: false
-    keep_tex: true
+    keep_tex: false
   papaja::apa6_docx: 
     number_sections: false
     keep_tex: false
@@ -604,9 +604,10 @@ mvs <- mv %>%
 
 ---
 abstract: |
-  With internet technologies' and platforms' increasing global penetration, their potential consequences to well-being remain debated. While these technologies have spurred novel forms of commerce, education, and leisure, many are worried that they might negatively affect individuals by, for example, displacing time spent on other healthy activities. Findings on internet technologies' effects on well-being have been, to date, inconclusive and of limited geographic and demographic scope. We examined the extent to which having (mobile) internet access or actively using the internet predicted eight well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries. We first queried the extent to which well-being varied as a function of internet connectivity. Then, we examined these associations' robustness in a multiverse of `r number2(nrow(specs))` analysis and subgroup specifications. `r percent(mvs$Positive[9], .01)` of these specifications resulted in positive and statistically significant associations between internet connectivity and well-being. These results indicate that (mobile) internet access and active internet use predict well-being positively and independent from a set of plausible confounders.
-  
-  \emph{Statement of relevance.} Are internet technologies, such as smartphones and social media, psychologically harmful? Past results have generally offered mixed evidence and, critically, focused on a narrow slice of the global population. At the same time, stakeholders from international health bodies to technology companies are investing in regulation and tools to protect internet users' well-being. We examined 2.5 million individual's, from 168 nations, psychosocial well-being and internet adoption and use over a period of fifteen years. We find that (mobile) internet adoption and use predict positive well-being and that this association is robust across thousands of adjustments for alternative explanations and demographic subgroups. While merely suggestive of causal associations, our results highlight social scientists' need for more transparent access to the large databases currently held behind the closed doors of the technology industry.
+  \paragraph{Abstract}
+  With internet technologies' and platforms' increasing global penetration, their potential consequences to well-being remain debated. While these technologies have spurred novel forms of commerce, education, and leisure, many are worried that they might negatively affect individuals by, for example, displacing time spent on other healthy activities. Findings on internet technologies' effects on well-being have been, to date, inconclusive and of limited geographic and demographic scope. We examined the extent to which having (mobile) internet access or actively using the internet predicted eight well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries. We first queried the extent to which well-being varied as a function of internet connectivity. Then, we examined these associations' robustness in a multiverse of `r number2(nrow(specs))` analysis and subgroup specifications. `r percent(mvs$Positive[9], .1)` of these specifications resulted in positive and statistically significant associations between internet connectivity and well-being. These results indicate that (mobile) internet access and active internet use predict well-being positively and independently from a set of plausible alternatives.
+  \paragraph{Statement of relevance}
+  Are internet technologies, such as smartphones and social media, psychologically harmful? Past results have generally offered mixed evidence and, critically, focused on a narrow slice of the global population. At the same time, stakeholders from international health bodies to technology companies are investing in regulation and tools to protect internet users' well-being. We examined 2.5 million individual's, from 168 nations, psychosocial well-being and internet adoption and use over a period of fifteen years. We find that (mobile) internet adoption and use predict positive well-being and that this association is robust across thousands of adjustments for alternative explanations and demographic subgroups. While merely suggestive of causal associations, our results highlight social scientists' need for more transparent access to the large databases currently held behind the closed doors of the technology industry.
 ---
 
 The increasing adoption and use of internet-enabled technologies and platforms has spurred debate about their potential effects on people's psychological well-being and functioning. Social scientists have shifted focus from other topics such as violent video games and television-based technologies to new and emerging platforms and handheld digital devices [@orbenSisypheanCycleTechnology2020]. Large technology firms such as Meta [@metaNewToolsResources2022], Google [@googleDigitalWellbeingTechnology2022], Apple [@appleIOS12Introduces2018], and TikTok [@tiktokDigitalWellbeing2021] have reacted to concerns and released a host of "digital well-being" tools. At the same time, health professionals [@officeofthesurgeongeneralosgProtectingYouthMental2021] and officials in many countries are working to enact new regulations [@departmentfordigitalculturemedia&sportGuideOnlineSafety2022] to ensure internet and technology platforms protect user well-being. However, even after considerable scientific attention, an understanding of the fundamental associations between internet technology adoption and use and well-being remains elusive, and results of scientific studies on this topic are decidedly mixed [@appelAreSocialMedia2020; @bestOnlineCommunicationSocial2014; @dickson2018screen].
@@ -897,7 +898,8 @@ mvs2 %>%
       "Association magnitude" = c(4, 5),
       "Proportions of significant associations" = c(6, 8)
     ), 
-    font_size = "scriptsize"
+    font_size = "scriptsize",
+    span_text_columns = TRUE
   )
 ```
 
@@ -909,15 +911,16 @@ mvs2 %>%
 #| fig.height: 6
 #| fig.width: 9
 #| fig.cap: Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. 
-draw_sca <- function(Y) {
+draw_sca <- function(mv, Y) {
   this_mv <- filter(mv, y %in% Y) %>% 
     mutate(y = factor(y, levels = Y))
   p1 <- this_mv %>% 
     ggplot(aes(i, estimate, col = decision)) +
     scale_color_manual(values = c("firebrick2", "grey70", "dodgerblue2")) +
-    scale_y_continuous(position = "right",
-                       "Estimated association (95%CI)",
-                       breaks = extended_breaks(7)
+    scale_y_continuous(
+      position = "right",
+      "Estimated association (95%CI)",
+      breaks = extended_breaks(7)
     ) +
     scale_x_continuous(
       "Analysis specification (in order of association magnitude)",
@@ -1019,9 +1022,13 @@ draw_sca <- function(Y) {
   
   list(a = p1, b = p2)
 }
-tmp <- draw_sca(ys)
+tmp <- mv %>% 
+  arrange(desc(std.error)) %>% 
+  # Take out one degenerate estimate for this plot
+  slice(-1) %>% 
+  draw_sca(ys)
 tmp$a +
-  coord_cartesian(ylim = c(-0.1, 0.125)) + 
+  coord_cartesian(ylim = c(-0.1, 0.125)) +
   theme(axis.title.x = element_text())
 ```
 
@@ -1130,7 +1137,7 @@ x <- dat %>%
   # filter(year > 2013) %>% 
   select(
     starts_with("internet"),
-    income, healthproblems, relationship,
+    income, healthproblems, relationship, foodshelter,
     life_satisfaction, negative_experiences, positive_experiences, social_life,
     starts_with("gwb_")
   ) %>% 
@@ -1162,7 +1169,7 @@ Figures \@ref(fig:fig-sca-full-1) and \@ref(fig:fig-sca-full-2) show the full sp
 #| fig.height: 9
 #| fig.width: 9
 #| fig.cap: Multiverse analysis results of associations between three internet use predictors and four main well-being outcomes. A. Estimated associations, in order of increasing magnitude, shown separately for each of the four main well-being outcomes. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. B. A dashboard of model specifications. Each point in the small panels indicates the value of the grouping variable or covariate specification for the model indicated on the x-axis.
-tmp <- draw_sca(ys[1:4])
+tmp <- draw_sca(mv, ys[1:4])
 ((tmp$a / tmp$b) +
       plot_layout(heights = c(3.2, 6.8))) +
     plot_annotation(tag_levels = "A")
@@ -1176,7 +1183,7 @@ tmp <- draw_sca(ys[1:4])
 #| fig.height: 9
 #| fig.width: 9
 #| fig.cap: Multiverse analysis results of associations between three internet use predictors and four GWBI well-being outcomes. A. Estimated associations, in order of increasing magnitude, shown separately for each of the four GWBI well-being outcomes. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. B. A dashboard of model specifications. Each point in the small panels indicates the value of the grouping variable or covariate specification for the model indicated on the x-axis.
-tmp <- draw_sca(ys[5:8])
+tmp <- draw_sca(mv, ys[5:8])
 ((tmp$a / tmp$b) +
       plot_layout(heights = c(3.2, 6.8))) +
     plot_annotation(tag_levels = "A")
