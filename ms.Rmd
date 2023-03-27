@@ -4,15 +4,17 @@ shorttitle: Internet and well-being
 leftheader: Internet and well-being
 author: 
   - name: Matti Vuorre
-    affiliation: 1
+    affiliation: "1,2"
     corresponding: yes
     address: Tilburg University
     email: m.j.vuorre@tilburguniversity.edu
   - name: Andrew K. Przybylski
-    affiliation: 1
+    affiliation: "2"
     email: andy.przybylski@oii.ox.ac.uk
 affiliation:
   - id: 1
+    institution: Tilburg School of Social and Behavioral Sciences, Tilburg University
+  - id: 2
     institution: Oxford Internet Institute, University of Oxford
 authornote: |
   \noindent \textbf{This manuscript is not yet peer-reviewed.}
@@ -605,7 +607,7 @@ mvs <- mv %>%
 ---
 abstract: |
   \paragraph{Abstract}
-  With internet technologies' and platforms' increasing global penetration, their potential consequences to well-being remain debated. While these technologies have spurred novel forms of commerce, education, and leisure, many are worried that they might negatively affect individuals by, for example, displacing time spent on other healthy activities. Findings on internet technologies' effects on well-being have been, to date, inconclusive and of limited geographic and demographic scope. We examined the extent to which having (mobile) internet access or actively using the internet predicted eight well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries. We first queried the extent to which well-being varied as a function of internet connectivity. Then, we examined these associations' robustness in a multiverse of `r number2(nrow(specs))` analysis and subgroup specifications. `r percent(mvs$Positive[9], .1)` of these specifications resulted in positive and statistically significant associations between internet connectivity and well-being. These results indicate that (mobile) internet access and active internet use predict well-being positively and independently from a set of plausible alternatives.
+  Internet technologies' and platforms' potential psychological consequences remain debated. While these technologies have spurred new forms of commerce, education, and leisure, many are worried that they might negatively affect individuals by, for example, displacing time spent on other healthy activities. Relevant findings to date have been inconclusive and of limited geographic and demographic scope. We examined whether having (mobile) internet access or actively using the internet predicted eight well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries. We first queried the extent to which well-being varied as a function of internet connectivity. Then, we examined these associations' robustness in a multiverse of `r number2(nrow(specs))` analysis specifications. `r percent(mvs$Positive[9], .1)` of these resulted in positive and statistically significant associations between internet connectivity and well-being. These results indicate that internet access and use predict well-being positively and independently from a set of plausible alternatives.
   \paragraph{Statement of relevance}
   Are internet technologies, such as smartphones and social media, psychologically harmful? Past results have generally offered mixed evidence and, critically, focused on a narrow slice of the global population. At the same time, stakeholders from international health bodies to technology companies are investing in regulation and tools to protect internet users' well-being. We examined 2.5 million individual's, from 168 nations, psychosocial well-being and internet adoption and use over a period of fifteen years. We find that (mobile) internet adoption and use predict positive well-being and that this association is robust across thousands of adjustments for alternative explanations and demographic subgroups. While merely suggestive of causal associations, our results highlight social scientists' need for more transparent access to the large databases currently held behind the closed doors of the technology industry.
 ---
@@ -618,7 +620,7 @@ Considering this impasse, our overarching research goal was to estimate the exte
 
 # Open Practices Statement
 
-We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at [DOI]. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
+We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 
 # Methods
 
@@ -1038,8 +1040,6 @@ Figure \@ref(fig:fig-multiverse) shows that across all model specifications, the
 
 Whereas Figure \@ref(fig:fig-rq1) showed that the overall average associations were consistent across internet adoption predictors and well-being outcomes, Figure \@ref(fig:fig-multiverse) highlights a surprising consistency in that association across demographic subgroups and, moreover, in model covariate specifications. If these associations were spurious associations caused by any of the covariates we considered, we should observe clusters of non-significant or reversed estimates for specific covariate sets. This was mostly not the case: Figures S1 and S2 show additional "dashboards" that indicate the covariate specifications for each estimate in Figure \@ref(fig:fig-multiverse), and we did not discern any clear patterns among them with respect to the covariate specifications.
 
-Notably, however, Figure \@ref(fig:fig-multiverse) shows a large group of negative associations between community well-being and internet adoption among otherwise mostly positive relationships. To examine these differences further, Figure \@ref(fig:fig-multiverse-zoom) focuses on variability in the associations across demographics and covariate specifications. The association between community well-being and internet adoption was particular to active internet use (rather than access) and individuals in the youngest 15 to 24 age category.
-
 ```{r}
 #| include: true
 #| label: fig-multiverse-zoom
@@ -1084,15 +1084,19 @@ p1 <- specs %>%
 p1
 ```
 
-More generally, Figure \@ref(fig:fig-multiverse-zoom) also shows that while increasing the number and complexity of covariates in the model did tend to decrease the magnitudes of the estimated associations, they typically remained positive. This observation shows that even after adjusting for all possible combinations of the covariates that we considered, the relationships between internet access or use and well-being remained positive. In turn, this suggests that the contributions of internet access and use on well-being were independent of the covariates we selected for, and thus might indicate causal relations. (Although we highlight the evidence here for causal claims is less than thin.)
+However, Figure \@ref(fig:fig-multiverse) shows a notable group of negative associations between community well-being and internet adoption among otherwise mostly positive relationships. To examine these differences further, Figure \@ref(fig:fig-multiverse-zoom) focuses on variability in the associations across demographics and covariate specifications. The association between community well-being and internet adoption was particular to active internet use (rather than access) and individuals in the youngest 15 to 24 age category.
+
+More generally, Figure \@ref(fig:fig-multiverse-zoom) also shows that while increasing the number of covariates in the model did tend to decrease the magnitudes of the estimated associations, they typically remained positive. This observation shows that even after adjusting for all possible combinations of the covariates that we considered, the relationships between internet access or use and well-being remained positive. In turn, this suggests that the contributions of internet access and use on well-being were independent of the covariates we selected for, and thus might indicate causal relations. (Although we highlight the evidence here for causal claims is less than thin.)
 
 # Discussion
 
-The debate over internet platforms' and technologies' effects on individuals' psychological well-being remains a central topic because of their potentially global consequences. While past results on this topic have been mixed, the overwhelming majority of studies have examined convenience samples from the global north, thereby ignoring the fact that the penetration of the internet has been a global phenomenon. In this study, we examined associations between internet use and access, and a broad variety of well-being indicators in a representative sample of `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries within an age range that spanned from late adolescence to older adults. We found that on average across countries and demographics, individuals who had internet access, mobile internet access, or actively used the internet reported greater levels of life satisfaction, positive experiences, experiences of purpose, and physical, community, and social well-being, and lower levels of negative experiences.
+The debate over internet platforms' and technologies' effects on individuals' psychological well-being remains a central topic because of their potentially global consequences. While past results on this topic have been mixed, the overwhelming majority of studies have examined convenience samples from the global north, thereby ignoring the fact that the penetration of the internet has been, and continues to be, a global phenomenon. In this study, we examined associations between internet use and access, and a broad variety of well-being indicators in a representative sample of `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries within an age range that spanned from late adolescence to older adults. We found that on average across countries and demographics, individuals who had internet access, mobile internet access, or actively used the internet reported greater levels of life satisfaction, positive experiences, experiences of purpose, and physical, community, and social well-being, and lower levels of negative experiences.
 
 The main thrust of our analysis was to examine to what extent this positive association between internet and well-being was sensitive to different demographic groups and modelling decisions. Furthermore, we attempted to estimate the unique contributions of internet on well-being by examining this association across `r length(cs)` different permutations of sets of plausible covariates that might otherwise create or mask associations. Across `r number2(nrow(specs))` of such model specifications, `r percent(mvs$Positive[9], .1)` of the associations were significantly positive, and only `r percent(mvs$Negative[9], .1)` were negative. These results therefore suggest that the proliferation of (mobile) internet access and increasing engagement with the internet has been a net benefit to the well-being of individuals around the world.
 
-Nevertheless, this conclusion is qualified by a number of factors. First, we compared individuals to each other. There are likely myriad other features about the human condition that are associated with both uptake of internet technologies and well-being in such a manner that they might cause positive associations to be observed. While we attempted to adjust for such features by including various covariates in our models, the data and theory to guide model selection were both limited.
+We did, however, observe a notable group of negative associations between internet use and community well-being. These negative associations were restricted to a portion of analyses concerning young (15-24 year old) individuals, and mostly females. These associations occurred across the full spectrum of covariate specifications, and thereby were not likely driven by a particular model specification. Further research should investigate whether low community well-being drives engagement with the internet, or vice versa.
+
+Nevertheless, our conclusions are qualified by a number of factors. First, we compared individuals to each other. There are likely myriad other features about the human condition that are associated with both uptake of internet technologies and well-being in such a manner that they might cause positive associations to be observed. While we attempted to adjust for such features by including various covariates in our models, the data and theory to guide model selection were both limited.
 
 Second, while between-person data such as we studied can inform inferences about average causal effects, longitudinal studies that track individuals and their internet use over time would be more informative in understanding the contexts of how and why an individual might be affected by internet technologies and platforms [@rohrerTheseAreNot2021].
 
