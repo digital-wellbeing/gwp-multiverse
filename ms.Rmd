@@ -17,8 +17,8 @@ affiliation:
   - id: 2
     institution: Oxford Internet Institute, University of Oxford
 authornote: |
-  \noindent \textbf{This manuscript is not yet peer-reviewed.}
-  
+  \noindent \textbf{This manuscript is not yet peer-reviewed. The preprint is available at https://psyarxiv.com/jp5nd/}
+  We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 keywords: well-being, internet technology, technology effects
 wordcount: '`r scales::number(wordcountaddin:::word_count("ms.Rmd"), big.mark = ",")`'
 bibliography: references.bib
@@ -30,8 +30,7 @@ figurelist: no
 tablelist: no
 footnotelist: no
 documentclass: apa7
-classoption: jou
-csl: "pnas.csl"
+classoption: doc
 header-includes:
   - |
     \setlength{\parskip}{0pt}
@@ -607,10 +606,7 @@ mvs <- mv %>%
 
 ---
 abstract: |
-  \paragraph{Abstract}
   Internet technologies' and platforms' potential psychological consequences remain debated. While these technologies have spurred new forms of commerce, education, and leisure, many are worried that they might negatively affect individuals by, for example, displacing time spent on other healthy activities. Relevant findings to date have been inconclusive and of limited geographic and demographic scope. We examined whether having (mobile) internet access or actively using the internet predicted eight well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries. We first queried the extent to which well-being varied as a function of internet connectivity. Then, we examined these associations' robustness in a multiverse of `r number2(nrow(specs))` analysis specifications. `r percent(mvs$Positive[9], .1)` of these resulted in positive and statistically significant associations between internet connectivity and well-being. These results indicate that internet access and use predict well-being positively and independently from a set of plausible alternatives.
-  \paragraph{Significance statement}
-  Are internet technologies, such as smartphones and social media, psychologically harmful? Past results have offered mixed evidence and, critically, focused on a narrow slice of the global population. Stakeholders from international health bodies to technology companies are investing in regulation and tools to protect internet users' well-being. We examined 2.5 million individual's psychosocial well-being and internet adoption and use over a period of fifteen years. We find that (mobile) internet adoption and use predict positive well-being and that this association is robust across thousands of adjustments for alternative explanations and demographic subgroups. While merely suggestive of causal associations, our results highlight a need for more transparent access to large databases currently held behind the closed doors of the technology industry.
 ---
 
 The increasing adoption and use of internet-enabled technologies and platforms has spurred debate about their potential effects on people's psychological well-being and functioning. Social scientists have shifted focus from other topics such as violent video games and television-based technologies to new and emerging platforms and handheld digital devices [@orbenSisypheanCycleTechnology2020]. Large technology firms such as Meta [@metaNewToolsResources2022], Google [@googleDigitalWellbeingTechnology2022], Apple [@appleIOS12Introduces2018], and TikTok [@tiktokDigitalWellbeing2021] have reacted to concerns and released a host of "digital well-being" tools. At the same time, health professionals [@officeofthesurgeongeneralosgProtectingYouthMental2021] and officials in many countries are working to enact new regulations [@departmentfordigitalculturemedia&sportGuideOnlineSafety2022] to ensure internet and technology platforms protect user well-being. However, even after considerable scientific attention, an understanding of the fundamental associations between internet technology adoption and use and well-being remains elusive, and results of scientific studies on this topic are decidedly mixed [@appelAreSocialMedia2020; @bestOnlineCommunicationSocial2014; @dickson2018screen].
@@ -618,10 +614,6 @@ The increasing adoption and use of internet-enabled technologies and platforms h
 The rise in tools, advice, and regulation aimed at addressing well-being is interesting, in part, because of how the studies informing this debate are done. For example, despite the fact the challenge is often framed as a world-wide issue, the geographic and demographic scope of the evidence base is narrow and not well mapped onto worldwide trends [@ghaiLackSampleDiversity2021]. In the past decades, the expansion of access to the internet has accelerated the most [@ituITUICTStatistics2021] in places where social scientists are the least likely to study their effects [@ghaiSocialMediaAdolescent2022]. Similarly, whilst studying technology adoption and well-being across countries requires frequent and high-quality measures of both factors, few if any investigations successfully combine the two. Measurement quality and consistency varies significantly and the most widely cited international studies either lack a longitudinal component [@byrneGlobalKidsOnline2016], or have long three [@oecdPISA2018Technical2018] or four year [@inchleyEnhancingUnderstandingAdolescent2020] intervals between data collections. Finally, because most of the debate surrounding the global impact of internet technologies is focused on younger people, little if any global data reflect associations between technology and well-being across the life course. This important lack of context means that it remains an open question of who, where, and when internet technologies and connectivity might be influencing people's well-being. Without knowing this it is impossible to deploy limited resources to capitalize on benefits or redress harms. To our knowledge, no research has directly grappled with these issues and addressed the worldwide scope of the debate.
 
 Considering this impasse, our overarching research goal was to estimate the extent to which internet access, mobile internet access, and internet use might predict psychological well-being on a global level. To this end, we analyzed data from a series of cross-sectional samples of `r number2(nrow(dat))` individuals from `r length(unique(dat$country))` countries from `r yr`. We studied eight indicators of well-being; life satisfaction, the extent to which individuals reported experiencing daily negative and positive experiences; two indices of social well-being; physical well-being, community well-being, and experiences of purpose. We started by first asking how well-being differed between individuals who had access to or used (mobile) internet, and those who did not. To answer, we predicted the well-being indicators from whether individuals had access to the internet, smartphone access, or whether they were active internet users. We then sought to probe the robustness of these associations by conducting a series of multiverse analyses that examined how national, demographic, and individual factors might serve to mask or create links between internet connectivity and well-being.
-
-# Open Practices Statement
-
-We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 
 # Methods
 
@@ -672,6 +664,10 @@ y_{ijkl} \sim\ &\text{Normal}(\mu_{ijkl}, \sigma^{2}), \\
 In this manner, $\alpha_1$ is the difference in well-being indicator $y$ between individuals who had access to the internet and those who didn't, for the average country and year.
 
 For our second, primary, research question we then conducted a multiverse analysis over different covariate permutations on this base model and subgroups in the data. We analysed all the possible ways in which the covariates could be included in this model (including no covariates) as fixed effects, leading to `r length(cs)` different covariate specifications. In addition to model specifications and subgroups, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights. Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, covariate combinations, and whether model weights were included or not, leading to `r number2(nrow(specs))` specifications. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses and the lme4 package for estimating the multilevel models [@batesFittingLinearMixedEffects2015].
+
+# Data availability statement
+
+We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 
 # Results
 
