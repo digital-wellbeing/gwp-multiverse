@@ -1,0 +1,7 @@
+# Example R environment file
+# To use, rename to .Renviron and modify variables below
+
+MAX_CORES=8
+DATA_PATH_GWP="data-raw/gallup/The_Gallup_042722.sav"
+DATA_PATH_GWP_CLEAN="data-raw/gwp.rds"
+DATA_PATH_SYN="data-synthetic/synthetic-data.rds"

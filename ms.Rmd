@@ -7,7 +7,7 @@ author:
     affiliation: "1,2"
     corresponding: yes
     address: Tilburg University
-    email: m.j.vuorre@tilburguniversity.edu
+    email: mjvuorre@uvt.nl
   - name: Andrew K. Przybylski
     affiliation: "2"
     email: andy.przybylski@oii.ox.ac.uk
@@ -17,10 +17,10 @@ affiliation:
   - id: 2
     institution: Oxford Internet Institute, University of Oxford
 authornote: |
-  \noindent \textbf{This manuscript is not yet peer-reviewed.}
-  
+  \textbf{This manuscript is not yet peer-reviewed. The preprint is available at \url{https://psyarxiv.com/jp5nd/}.}
+  We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at \url{https://doi.org/10.5281/zenodo.7774923}. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 keywords: well-being, internet technology, technology effects
-wordcount: '`r scales::number(wordcountaddin:::word_count("ms.Rmd"), big.mark = ",")`'
+wordcount: "4,217"
 bibliography: references.bib
 floatsintext: yes
 linenumbers: no
@@ -30,8 +30,7 @@ figurelist: no
 tablelist: no
 footnotelist: no
 documentclass: apa7
-classoption: jou
-csl: "pnas.csl"
+classoption: doc
 header-includes:
   - |
     \setlength{\parskip}{0pt}
@@ -48,6 +47,7 @@ output:
 ```{r}
 #| label: setup
 #| include: false
+
 library(papaja)
 library(scales)
 library(knitr)
@@ -55,23 +55,27 @@ library(lme4)
 library(ggh4x)
 library(emmeans)
 library(ggside)
+library(Hmisc)
 library(ggbeeswarm)
 library(broom.mixed)
 library(patchwork)
 library(ggdist)
 library(corrr)
 library(tidyverse)
-library(ragg)
 opts_chunk$set(
   include = FALSE,
   cache = TRUE,
-  dev = "ragg_png"
+  warning = FALSE
 )
 
-# Parallel computation options
+# Environment options
 MAX_CORES <- as.numeric(Sys.getenv("MAX_CORES"))
-if (is.na(MAX_CORES)) MAX_CORES <- parallel::detectCores(logical = FALSE)
-CORES <- MAX_CORES - 2
+DATA_PATH_GWP <- Sys.getenv("DATA_PATH_GWP")
+DATA_PATH_GWP_CLEAN <- Sys.getenv("DATA_PATH_GWP_CLEAN")
+DATA_PATH_SYN <- Sys.getenv("DATA_PATH_SYN")
+USE_GWP_DATA <- file.exists(DATA_PATH_GWP)
+
+# Figure theme
 theme_set(
   theme_linedraw(base_size = 9.6) +
     theme(
@@ -98,8 +102,9 @@ number2 <- function(x, ...) number(x, ..., big.mark = ',')
 
 ```{r}
 #| label: data-clean
-path <- "data-raw/gwp.rds"
-if (dir.exists("data-raw/gallup") & !file.exists(path)) {
+
+# Wrangle GWP .sav file
+if (USE_GWP_DATA & !file.exists(DATA_PATH_GWP_CLEAN)) {
 
   # List of indices
   ix <- list(
@@ -118,7 +123,7 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
   library(labelled)
   # Load relevant variables
   dat <- read_spss(
-    "data-raw/gallup/The_Gallup_042722.sav", 
+    DATA_PATH, 
     col_select = c(
       WGT,
       WP5, 
@@ -283,35 +288,49 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
     select(-internet_home)
   
   # Save
-  write_rds(dat, path)
+  write_rds(dat, DATA_PATH_GWP_CLEAN)
 }
 ```
 
 ```{r}
 #| label: data-synth-create
-#| eval: false
 
-# Here we create a synthetic smaller dataset that mimics some statistical properties of the dataset. It is a smaller dataset because generating the full table is very slow.
-if (FALSE) {
-  dir.create("synthetic-data", FALSE)
+# Create synthetic smaller dataset for code reproducibility.
+if (!file.exists(DATA_PATH_SYN) && file.exists(DATA_PATH_GWP_CLEAN)) {
+  dir.create(dirname(DATA_PATH_SYN), FALSE)
+  
+  renv::settings$ignored.packages(c("synthpop", "mice"))
   library(synthpop)
+  library(mice)
+  
   set.seed(909090)
-  x <- read_rds(path)
-  x <- x %>% 
-    filter(year > 2013) %>% 
-    filter(country %in% sample(unique(x$country), 20)) %>% 
-    # drop_na(starts_with("internet")) %>% 
-    slice_sample(n = 200, by = country)
-  x <- tibble(syn(x, method = "sample")$syn)
-  write_csv(x, "synthetic-data/synthetic-data.csv.gz")
+  data_synthetic <- read_rds(DATA_PATH_GWP_CLEAN) %>% 
+    filter(country %in% sample(unique(country), 20)) %>% 
+    slice_sample(n = 200, by = country) %>% 
+    mice(m = 1) %>% 
+    complete() %>% 
+    tibble()
+  
+  data_synthetic <- data_synthetic %>% 
+    syn() %>% 
+    pluck("syn") %>% 
+    tibble()
+
+  write_rds(data_synthetic, DATA_PATH_SYN)
 }
 ```
 
 
 ```{r}
 #| label: data-load
-dat <- read_rds(path)
-# dat <- read_csv("synthetic-data/synthetic-data.csv.gz") # Synthetic dataset
+
+if (file.exists(DATA_PATH_GWP_CLEAN)) {
+  message("\n---\nUsing real data\n---\n")
+  dat <- read_rds(DATA_PATH_GWP_CLEAN)
+} else {
+  message("\n---\nUsing synthetic data\n---\n")
+  dat <- read_rds(DATA_PATH_SYN)
+}
 
 # Summarise original values
 x_sum <- dat %>% 
@@ -444,17 +463,21 @@ specs <- expand_grid(
       str_glue("{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)"),
     )
   )
+
+# If only simulated data exists, run just 1 spec by every X, Y pair
+set.seed(9091090)
+if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = 2, by = c(y, x))
 ```
 
 ```{r}
 #| label: multiverse-run
 
-dir.create("tmp", FALSE)
 path <- "tmp/multiverse-lmer.rds"
+dir.create(dirname(path), FALSE)
 if (!file.exists(path)) {
   
   library(furrr)
-  plan(multisession, workers = CORES)
+  plan(multisession, workers = MAX_CORES)
   
   # Pass these global objects to `future_pmap()`
   opts <- furrr_options(
@@ -488,11 +511,12 @@ if (!file.exists(path)) {
   saveRDS(specs, path)
   
 }
+
+specs <- readRDS(path)
 ```
 
 ```{r}
 #| Label: multiverse-tidy
-specs <- readRDS(path) # Load from file
 
 # Parameter of interest (slope of x)
 specs <- specs %>% filter(term == x) 
@@ -607,10 +631,7 @@ mvs <- mv %>%
 
 ---
 abstract: |
-  \paragraph{Abstract}
   Internet technologies' and platforms' potential psychological consequences remain debated. While these technologies have spurred new forms of commerce, education, and leisure, many are worried that they might negatively affect individuals by, for example, displacing time spent on other healthy activities. Relevant findings to date have been inconclusive and of limited geographic and demographic scope. We examined whether having (mobile) internet access or actively using the internet predicted eight well-being outcomes from `r yr` among `r number2(nrow(dat))` individuals across `r length(unique(dat$country))` countries. We first queried the extent to which well-being varied as a function of internet connectivity. Then, we examined these associations' robustness in a multiverse of `r number2(nrow(specs))` analysis specifications. `r percent(mvs$Positive[9], .1)` of these resulted in positive and statistically significant associations between internet connectivity and well-being. These results indicate that internet access and use predict well-being positively and independently from a set of plausible alternatives.
-  \paragraph{Significance statement}
-  Are internet technologies, such as smartphones and social media, psychologically harmful? Past results have offered mixed evidence and, critically, focused on a narrow slice of the global population. Stakeholders from international health bodies to technology companies are investing in regulation and tools to protect internet users' well-being. We examined 2.5 million individual's psychosocial well-being and internet adoption and use over a period of fifteen years. We find that (mobile) internet adoption and use predict positive well-being and that this association is robust across thousands of adjustments for alternative explanations and demographic subgroups. While merely suggestive of causal associations, our results highlight a need for more transparent access to large databases currently held behind the closed doors of the technology industry.
 ---
 
 The increasing adoption and use of internet-enabled technologies and platforms has spurred debate about their potential effects on people's psychological well-being and functioning. Social scientists have shifted focus from other topics such as violent video games and television-based technologies to new and emerging platforms and handheld digital devices [@orbenSisypheanCycleTechnology2020]. Large technology firms such as Meta [@metaNewToolsResources2022], Google [@googleDigitalWellbeingTechnology2022], Apple [@appleIOS12Introduces2018], and TikTok [@tiktokDigitalWellbeing2021] have reacted to concerns and released a host of "digital well-being" tools. At the same time, health professionals [@officeofthesurgeongeneralosgProtectingYouthMental2021] and officials in many countries are working to enact new regulations [@departmentfordigitalculturemedia&sportGuideOnlineSafety2022] to ensure internet and technology platforms protect user well-being. However, even after considerable scientific attention, an understanding of the fundamental associations between internet technology adoption and use and well-being remains elusive, and results of scientific studies on this topic are decidedly mixed [@appelAreSocialMedia2020; @bestOnlineCommunicationSocial2014; @dickson2018screen].
@@ -618,10 +639,6 @@ The increasing adoption and use of internet-enabled technologies and platforms h
 The rise in tools, advice, and regulation aimed at addressing well-being is interesting, in part, because of how the studies informing this debate are done. For example, despite the fact the challenge is often framed as a world-wide issue, the geographic and demographic scope of the evidence base is narrow and not well mapped onto worldwide trends [@ghaiLackSampleDiversity2021]. In the past decades, the expansion of access to the internet has accelerated the most [@ituITUICTStatistics2021] in places where social scientists are the least likely to study their effects [@ghaiSocialMediaAdolescent2022]. Similarly, whilst studying technology adoption and well-being across countries requires frequent and high-quality measures of both factors, few if any investigations successfully combine the two. Measurement quality and consistency varies significantly and the most widely cited international studies either lack a longitudinal component [@byrneGlobalKidsOnline2016], or have long three [@oecdPISA2018Technical2018] or four year [@inchleyEnhancingUnderstandingAdolescent2020] intervals between data collections. Finally, because most of the debate surrounding the global impact of internet technologies is focused on younger people, little if any global data reflect associations between technology and well-being across the life course. This important lack of context means that it remains an open question of who, where, and when internet technologies and connectivity might be influencing people's well-being. Without knowing this it is impossible to deploy limited resources to capitalize on benefits or redress harms. To our knowledge, no research has directly grappled with these issues and addressed the worldwide scope of the debate.
 
 Considering this impasse, our overarching research goal was to estimate the extent to which internet access, mobile internet access, and internet use might predict psychological well-being on a global level. To this end, we analyzed data from a series of cross-sectional samples of `r number2(nrow(dat))` individuals from `r length(unique(dat$country))` countries from `r yr`. We studied eight indicators of well-being; life satisfaction, the extent to which individuals reported experiencing daily negative and positive experiences; two indices of social well-being; physical well-being, community well-being, and experiences of purpose. We started by first asking how well-being differed between individuals who had access to or used (mobile) internet, and those who did not. To answer, we predicted the well-being indicators from whether individuals had access to the internet, smartphone access, or whether they were active internet users. We then sought to probe the robustness of these associations by conducting a series of multiverse analyses that examined how national, demographic, and individual factors might serve to mask or create links between internet connectivity and well-being.
-
-# Open Practices Statement
-
-We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 
 # Methods
 
@@ -673,12 +690,16 @@ In this manner, $\alpha_1$ is the difference in well-being indicator $y$ between
 
 For our second, primary, research question we then conducted a multiverse analysis over different covariate permutations on this base model and subgroups in the data. We analysed all the possible ways in which the covariates could be included in this model (including no covariates) as fixed effects, leading to `r length(cs)` different covariate specifications. In addition to model specifications and subgroups, GWP recommends using model weights to adjust for demographic representativeness in some analyses, and so we conducted the analyses both with and without model weights. Our multiverse therefore consisted of all the distinct combinations of outcomes, predictors, age, sex, covariate combinations, and whether model weights were included or not, leading to `r number2(nrow(specs))` specifications. We used R [@rcoreteamLanguageEnvironmentStatistical2022] for analyses and the lme4 package for estimating the multilevel models [@batesFittingLinearMixedEffects2015].
 
+# Data availability statement
+
+We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
+
 # Results
 
 ```{r}
 #| label: multiverse-average-run
 
-path <- "tmp/specs-lmer-total.rds"
+path <- "tmp/multiverse-lmer-average.rds"
 if (!file.exists(path)) {
   
   library(furrr)
@@ -738,11 +759,6 @@ if (!file.exists(path)) {
   
   saveRDS(specs_avg, path)
 } else {specs_avg <- readRDS(path)}
-
-# Median association (with reversed negative experiences)
-# tmp <- specs_avg %>% 
-#   mutate(estimate = if_else(y == "negative_experiences", -1*estimate, estimate)) %>% 
-#   summarise(across(c(estimate, std.error), median))
 ```
 
 ```{r}
@@ -757,7 +773,7 @@ stdz_internet_ls <- number(specs_avg$estimate[1] / ysds[1,1,TRUE], .01)
 #| fig.env: "figure*"
 #| fig.height: 5.6
 #| fig.width: 9
-#| fig.cap: Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data.
+#| fig.cap: "Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data."
 
 tmp1 <- dat_raw %>% 
   pivot_longer(starts_with("internet")) %>% 
@@ -913,7 +929,8 @@ mvs2 %>%
 #| fig.env: "figure*"
 #| fig.height: 6
 #| fig.width: 9
-#| fig.cap: Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. 
+#| fig.cap: "Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. "
+
 draw_sca <- function(mv, Y) {
   this_mv <- filter(mv, y %in% Y) %>% 
     mutate(y = factor(y, levels = Y))
