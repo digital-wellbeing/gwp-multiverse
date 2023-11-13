@@ -69,19 +69,11 @@ opts_chunk$set(
 )
 
 # Environment options
-DATA_PATH_GWP <- Sys.getenv(
-  "DATA_PATH_GWP"
-)
-DATA_PATH_GWP_CLEAN <- "data-raw/gwp.rds"
-DATA_PATH_SYN <- Sys.getenv(
-  "DATA_PATH_SYN"
-)
-MAX_CORES <- as.numeric(
-  Sys.getenv(
-    "MAX_CORES", 
-    unset = parallel::detectCores(logical = FALSE)
-  )
-)
+MAX_CORES <- as.numeric(Sys.getenv("MAX_CORES"))
+DATA_PATH_GWP <- Sys.getenv("DATA_PATH_GWP")
+DATA_PATH_GWP_CLEAN <- Sys.getenv("DATA_PATH_GWP_CLEAN")
+DATA_PATH_SYN <- Sys.getenv("DATA_PATH_SYN")
+USE_GWP_DATA <- file.exists(DATA_PATH_GWP)
 
 # Figure theme
 theme_set(
@@ -112,7 +104,7 @@ number2 <- function(x, ...) number(x, ..., big.mark = ',')
 #| label: data-clean
 
 # Wrangle GWP .sav file
-if (file.exists(DATA_PATH_GWP) & !file.exists(DATA_PATH_GWP_CLEAN)) {
+if (USE_GWP_DATA & !file.exists(DATA_PATH_GWP_CLEAN)) {
 
   # List of indices
   ix <- list(
@@ -304,7 +296,7 @@ if (file.exists(DATA_PATH_GWP) & !file.exists(DATA_PATH_GWP_CLEAN)) {
 #| label: data-synth-create
 
 # Create synthetic smaller dataset for code reproducibility.
-if (!file.exists(DATA_PATH_SYN)) {
+if (!file.exists(DATA_PATH_SYN) && file.exists(DATA_PATH_GWP_CLEAN)) {
   dir.create(dirname(DATA_PATH_SYN), FALSE)
   
   renv::settings$ignored.packages(c("synthpop", "mice"))

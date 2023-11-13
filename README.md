@@ -13,20 +13,20 @@ This repository contains the code and simulated dataset associated with "A multi
 
 ## Environment
 
-We coded the analyses in [R](https://www.r-project.org/).
-
-We used [renv](https://cloud.r-project.org/web/packages/renv/index.html) to manage the project's R environment. To ensure that you run computations in the same environment, first restore ours with `renv::restore(prompt = FALSE)`.
+We coded the analyses in [R](https://www.r-project.org/), and used [renv](https://cloud.r-project.org/web/packages/renv/index.html) to manage the project's R environment. To ensure that you run computations in the same environment, first restore it with `renv::restore(prompt = FALSE)`.
 
 ### Environment variables
 
-We provide an example `.Renviron` file (`example.Renviron`), which **you should rename to `.Renviron`** and modify according to your environment.
+Use the variables in `.Renviron` to e.g. point to a local GWP data file, or use a number of CPUs more appropriate to your machine.
 
-- `MAX_CORES=8`
-  - Change this to use as many CPU cores as you'd like. The real data is big and there's thousands of models so keep that in mind. We used 8 which is the default here.
-- `DATA_PATH_GWP="data-raw/gallup/The_Gallup_042722.sav"`
-  - Path to the *real* GWP data. Uncomment this and modify to point to your local copy. Keep commented out if you don't have it.
-- `DATA_PATH_SYN="data-synthetic/synthetic-data.rds"`
-  - Location of the synthetic data file. You probably don't need to touch this.
+- `MAX_CORES`
+  - Number of CPUs to use. 
+- `DATA_PATH_GWP`
+  - Path to the actual GWP data. 
+- `DATA_PATH_GWP_CLEAN`
+  - Path to cleaned GWP data
+- `DATA_PATH_SYN`
+  - Location of the synthetic data file.
 
 ## Data
 
