@@ -20,7 +20,7 @@ authornote: |
   \noindent \textbf{This manuscript is not yet peer-reviewed. The preprint is available at https://psyarxiv.com/jp5nd/}
   We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 keywords: well-being, internet technology, technology effects
-wordcount: '`r scales::number(wordcountaddin:::word_count("ms.Rmd"), big.mark = ",")`'
+wordcount: "4,217"
 bibliography: references.bib
 floatsintext: yes
 linenumbers: no
@@ -47,6 +47,7 @@ output:
 ```{r}
 #| label: setup
 #| include: false
+
 library(papaja)
 library(scales)
 library(knitr)
@@ -60,16 +61,18 @@ library(patchwork)
 library(ggdist)
 library(corrr)
 library(tidyverse)
-library(ragg)
 opts_chunk$set(
   include = FALSE,
-  cache = TRUE,
-  dev = "ragg_png"
+  cache = TRUE
 )
 
 # Parallel computation options
-MAX_CORES <- as.numeric(Sys.getenv("MAX_CORES"))
-if (is.na(MAX_CORES)) MAX_CORES <- parallel::detectCores(logical = FALSE)
+MAX_CORES <- as.numeric(
+  Sys.getenv(
+    "MAX_CORES", 
+    unset = parallel::detectCores(logical = FALSE)
+  )
+)
 CORES <- MAX_CORES - 2
 theme_set(
   theme_linedraw(base_size = 9.6) +
@@ -97,6 +100,7 @@ number2 <- function(x, ...) number(x, ..., big.mark = ',')
 
 ```{r}
 #| label: data-clean
+
 path <- "data-raw/gwp.rds"
 if (dir.exists("data-raw/gallup") & !file.exists(path)) {
 
