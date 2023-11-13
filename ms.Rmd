@@ -72,8 +72,7 @@ DATA_PATH_GWP <- Sys.getenv(
 )
 DATA_PATH_GWP_CLEAN <- "data-raw/gwp.rds"
 DATA_PATH_SYN <- Sys.getenv(
-  "DATA_PATH_SYN",
-  unset = "data-synthetic/synthetic-data.rds"
+  "DATA_PATH_SYN"
 )
 MAX_CORES <- as.numeric(
   Sys.getenv(
@@ -470,6 +469,10 @@ specs <- expand_grid(
       str_glue("{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)"),
     )
   )
+
+# If only simulated data exists, sun small subset of specs
+set.seed(9091090)
+if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = MAX_CORES)
 ```
 
 ```{r}
