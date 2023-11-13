@@ -64,7 +64,8 @@ library(corrr)
 library(tidyverse)
 opts_chunk$set(
   include = FALSE,
-  cache = TRUE
+  cache = TRUE,
+  warning = FALSE
 )
 
 # Environment options
@@ -473,7 +474,7 @@ specs <- expand_grid(
 
 # If only simulated data exists, run just 1 spec by every X, Y pair
 set.seed(9091090)
-if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = 1, by = c(y, x))
+if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = 2, by = c(y, x))
 ```
 
 ```{r}
@@ -780,7 +781,7 @@ stdz_internet_ls <- number(specs_avg$estimate[1] / ysds[1,1,TRUE], .01)
 #| fig.env: "figure*"
 #| fig.height: 5.6
 #| fig.width: 9
-#| fig.cap: "Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data."
+#| fig.cap: "Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data."
 
 tmp1 <- dat_raw %>% 
   pivot_longer(starts_with("internet")) %>% 

@@ -19,7 +19,7 @@ We used [renv](https://cloud.r-project.org/web/packages/renv/index.html) to mana
 
 ### Environment variables
 
-We provide an example `.Renviron` file (`example.Renviron`), which you should rename to `.Renviron` and modify according to your environment.
+We provide an example `.Renviron` file (`example.Renviron`), which **you should rename to `.Renviron`** and modify according to your environment.
 
 - `MAX_CORES=8`
   - Change this to use as many CPU cores as you'd like. The real data is big and there's thousands of models so keep that in mind. We used 8 which is the default here.
