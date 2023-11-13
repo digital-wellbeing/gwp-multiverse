@@ -471,9 +471,9 @@ specs <- expand_grid(
     )
   )
 
-# If only simulated data exists, sun small subset of specs
+# If only simulated data exists, run just 1 spec by every X, Y pair
 set.seed(9091090)
-if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = MAX_CORES)
+if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = 1, by = c(y, x))
 ```
 
 ```{r}
@@ -706,7 +706,7 @@ We used the proprietary Gallup World Poll dataset, which is available to subscri
 ```{r}
 #| label: multiverse-average-run
 
-path <- "tmp/specs-lmer-total.rds"
+path <- "tmp/multiverse-lmer-average.rds"
 if (!file.exists(path)) {
   
   library(furrr)
@@ -766,11 +766,6 @@ if (!file.exists(path)) {
   
   saveRDS(specs_avg, path)
 } else {specs_avg <- readRDS(path)}
-
-# Median association (with reversed negative experiences)
-# tmp <- specs_avg %>% 
-#   mutate(estimate = if_else(y == "negative_experiences", -1*estimate, estimate)) %>% 
-#   summarise(across(c(estimate, std.error), median))
 ```
 
 ```{r}
@@ -785,7 +780,7 @@ stdz_internet_ls <- number(specs_avg$estimate[1] / ysds[1,1,TRUE], .01)
 #| fig.env: "figure*"
 #| fig.height: 5.6
 #| fig.width: 9
-#| fig.cap: Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data.
+#| fig.cap: "Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data."
 
 tmp1 <- dat_raw %>% 
   pivot_longer(starts_with("internet")) %>% 
@@ -941,7 +936,8 @@ mvs2 %>%
 #| fig.env: "figure*"
 #| fig.height: 6
 #| fig.width: 9
-#| fig.cap: Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. 
+#| fig.cap: "Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. "
+
 draw_sca <- function(mv, Y) {
   this_mv <- filter(mv, y %in% Y) %>% 
     mutate(y = factor(y, levels = Y))
