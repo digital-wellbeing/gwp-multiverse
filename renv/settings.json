@@ -1,12 +1,17 @@
 {
   "bioconductor.version": [],
   "external.libraries": [],
-  "ignored.packages": [],
+  "ignored.packages": [
+    "synthpop",
+    "mice"
+  ],
   "package.dependency.fields": [
     "Imports",
     "Depends",
     "LinkingTo"
   ],
+  "ppm.enabled": null,
+  "ppm.ignored.urls": [],
   "r.version": [],
   "snapshot.type": "implicit",
   "use.cache": true,

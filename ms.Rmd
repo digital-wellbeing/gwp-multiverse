@@ -7,7 +7,7 @@ author:
     affiliation: "1,2"
     corresponding: yes
     address: Tilburg University
-    email: m.j.vuorre@tilburguniversity.edu
+    email: mjvuorre@uvt.nl
   - name: Andrew K. Przybylski
     affiliation: "2"
     email: andy.przybylski@oii.ox.ac.uk
@@ -17,8 +17,8 @@ affiliation:
   - id: 2
     institution: Oxford Internet Institute, University of Oxford
 authornote: |
-  \noindent \textbf{This manuscript is not yet peer-reviewed. The preprint is available at https://psyarxiv.com/jp5nd/}
-  We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at https://doi.org/10.5281/zenodo.7774923. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
+  \textbf{This manuscript is not yet peer-reviewed. The preprint is available at \url{https://psyarxiv.com/jp5nd/}.}
+  We used the proprietary Gallup World Poll dataset, which is available to subscribing institutions through the Gallup website. All our code and a simulated GWP dataset is available at \url{https://doi.org/10.5281/zenodo.7774923}. We did not pre-specify the sample sizes, but instead used all the available data in the Gallup database (with the exclusions detailed below). This study was not pre-registered.
 keywords: well-being, internet technology, technology effects
 wordcount: "4,217"
 bibliography: references.bib
@@ -55,6 +55,7 @@ library(lme4)
 library(ggh4x)
 library(emmeans)
 library(ggside)
+library(Hmisc)
 library(ggbeeswarm)
 library(broom.mixed)
 library(patchwork)
@@ -63,17 +64,26 @@ library(corrr)
 library(tidyverse)
 opts_chunk$set(
   include = FALSE,
-  cache = TRUE
+  cache = TRUE,
+  warning = FALSE
 )
 
-# Parallel computation options
+# Environment options
+DATA_PATH_GWP <- Sys.getenv(
+  "DATA_PATH_GWP"
+)
+DATA_PATH_GWP_CLEAN <- "data-raw/gwp.rds"
+DATA_PATH_SYN <- Sys.getenv(
+  "DATA_PATH_SYN"
+)
 MAX_CORES <- as.numeric(
   Sys.getenv(
     "MAX_CORES", 
     unset = parallel::detectCores(logical = FALSE)
   )
 )
-CORES <- MAX_CORES - 2
+
+# Figure theme
 theme_set(
   theme_linedraw(base_size = 9.6) +
     theme(
@@ -101,8 +111,8 @@ number2 <- function(x, ...) number(x, ..., big.mark = ',')
 ```{r}
 #| label: data-clean
 
-path <- "data-raw/gwp.rds"
-if (dir.exists("data-raw/gallup") & !file.exists(path)) {
+# Wrangle GWP .sav file
+if (file.exists(DATA_PATH_GWP) & !file.exists(DATA_PATH_GWP_CLEAN)) {
 
   # List of indices
   ix <- list(
@@ -121,7 +131,7 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
   library(labelled)
   # Load relevant variables
   dat <- read_spss(
-    "data-raw/gallup/The_Gallup_042722.sav", 
+    DATA_PATH, 
     col_select = c(
       WGT,
       WP5, 
@@ -286,35 +296,49 @@ if (dir.exists("data-raw/gallup") & !file.exists(path)) {
     select(-internet_home)
   
   # Save
-  write_rds(dat, path)
+  write_rds(dat, DATA_PATH_GWP_CLEAN)
 }
 ```
 
 ```{r}
 #| label: data-synth-create
-#| eval: false
 
-# Here we create a synthetic smaller dataset that mimics some statistical properties of the dataset. It is a smaller dataset because generating the full table is very slow.
-if (FALSE) {
-  dir.create("synthetic-data", FALSE)
+# Create synthetic smaller dataset for code reproducibility.
+if (!file.exists(DATA_PATH_SYN)) {
+  dir.create(dirname(DATA_PATH_SYN), FALSE)
+  
+  renv::settings$ignored.packages(c("synthpop", "mice"))
   library(synthpop)
+  library(mice)
+  
   set.seed(909090)
-  x <- read_rds(path)
-  x <- x %>% 
-    filter(year > 2013) %>% 
-    filter(country %in% sample(unique(x$country), 20)) %>% 
-    # drop_na(starts_with("internet")) %>% 
-    slice_sample(n = 200, by = country)
-  x <- tibble(syn(x, method = "sample")$syn)
-  write_csv(x, "synthetic-data/synthetic-data.csv.gz")
+  data_synthetic <- read_rds(DATA_PATH_GWP_CLEAN) %>% 
+    filter(country %in% sample(unique(country), 20)) %>% 
+    slice_sample(n = 200, by = country) %>% 
+    mice(m = 1) %>% 
+    complete() %>% 
+    tibble()
+  
+  data_synthetic <- data_synthetic %>% 
+    syn() %>% 
+    pluck("syn") %>% 
+    tibble()
+
+  write_rds(data_synthetic, DATA_PATH_SYN)
 }
 ```
 
 
 ```{r}
 #| label: data-load
-dat <- read_rds(path)
-# dat <- read_csv("synthetic-data/synthetic-data.csv.gz") # Synthetic dataset
+
+if (file.exists(DATA_PATH_GWP_CLEAN)) {
+  message("\n---\nUsing real data\n---\n")
+  dat <- read_rds(DATA_PATH_GWP_CLEAN)
+} else {
+  message("\n---\nUsing synthetic data\n---\n")
+  dat <- read_rds(DATA_PATH_SYN)
+}
 
 # Summarise original values
 x_sum <- dat %>% 
@@ -447,17 +471,21 @@ specs <- expand_grid(
       str_glue("{y} ~ {x} + {covariate} + ({x} | country) + ({x} | year) + ({x} | country:year)"),
     )
   )
+
+# If only simulated data exists, run just 1 spec by every X, Y pair
+set.seed(9091090)
+if (DATA_PATH_GWP == "") specs <- slice_sample(specs, n = 2, by = c(y, x))
 ```
 
 ```{r}
 #| label: multiverse-run
 
-dir.create("tmp", FALSE)
 path <- "tmp/multiverse-lmer.rds"
+dir.create(dirname(path), FALSE)
 if (!file.exists(path)) {
   
   library(furrr)
-  plan(multisession, workers = CORES)
+  plan(multisession, workers = MAX_CORES)
   
   # Pass these global objects to `future_pmap()`
   opts <- furrr_options(
@@ -491,11 +519,12 @@ if (!file.exists(path)) {
   saveRDS(specs, path)
   
 }
+
+specs <- readRDS(path)
 ```
 
 ```{r}
 #| Label: multiverse-tidy
-specs <- readRDS(path) # Load from file
 
 # Parameter of interest (slope of x)
 specs <- specs %>% filter(term == x) 
@@ -678,7 +707,7 @@ We used the proprietary Gallup World Poll dataset, which is available to subscri
 ```{r}
 #| label: multiverse-average-run
 
-path <- "tmp/specs-lmer-total.rds"
+path <- "tmp/multiverse-lmer-average.rds"
 if (!file.exists(path)) {
   
   library(furrr)
@@ -738,11 +767,6 @@ if (!file.exists(path)) {
   
   saveRDS(specs_avg, path)
 } else {specs_avg <- readRDS(path)}
-
-# Median association (with reversed negative experiences)
-# tmp <- specs_avg %>% 
-#   mutate(estimate = if_else(y == "negative_experiences", -1*estimate, estimate)) %>% 
-#   summarise(across(c(estimate, std.error), median))
 ```
 
 ```{r}
@@ -757,7 +781,7 @@ stdz_internet_ls <- number(specs_avg$estimate[1] / ysds[1,1,TRUE], .01)
 #| fig.env: "figure*"
 #| fig.height: 5.6
 #| fig.width: 9
-#| fig.cap: Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data.
+#| fig.cap: "Scatterplots of countries' mean well-being outcomes for individuals who responded No and Yes to the internet question, and their differences. Small points are countries' means, and solid colored points and lines are means of the countries' means. Numbers in each panel's left bottom corner indicate the regression coefficient (Yes - No) and its 95\\% confidence interval. The GWBI outcomes did not overlap in time with mobile internet data."
 
 tmp1 <- dat_raw %>% 
   pivot_longer(starts_with("internet")) %>% 
@@ -913,7 +937,8 @@ mvs2 %>%
 #| fig.env: "figure*"
 #| fig.height: 6
 #| fig.width: 9
-#| fig.cap: Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. 
+#| fig.cap: "Multiverse analysis results of associations between three internet use predictors and eight well-being outcomes. The estimated associations are ordered by increasing magnitude; the x-axis denotes the ordered number of (predictor * age * sex * covariate combination * weights) specification. The small shaded areas to the right of each panel show the kernel density estimates of the associations' point estimates, and the median association with a colored point. "
+
 draw_sca <- function(mv, Y) {
   this_mv <- filter(mv, y %in% Y) %>% 
     mutate(y = factor(y, levels = Y))
