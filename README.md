@@ -2,8 +2,9 @@
 
 This repository contains the code and simulated dataset associated with "A multiverse analysis of the associations between internet use and well-being" (Vuorre & Przybylski). 
 
-- https://doi.org/10.5281/zenodo.7774923
-- https://github.com/digital-wellbeing/gwp-multiverse
+- preprint: <https://doi.org/10.31234/osf.io/jp5nd>
+- repository: <https://github.com/digital-wellbeing/gwp-multiverse>
+- archive: <https://doi.org/10.5281/zenodo.7774923>
 
 ## Data
 
